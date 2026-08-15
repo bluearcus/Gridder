@@ -234,12 +234,22 @@
             </button>
 
             <button onclick="saveGrid()">
-                Save
+                Save Local
             </button>
 
             <button onclick="loadGrid()">
-                Load
+                Load Local
             </button>
+
+            <button onclick="exportGridFile()">
+                Export File
+            </button>
+
+            <button onclick="importGridFile()">
+                Import File
+            </button>
+
+            <input type="file" id="gridFileInput" style="display:none" accept=".json" onchange="handleFileSelect(event)">
         </div>
 
         <div id="calibrationResult" class="status">
@@ -788,12 +798,10 @@ function setCalibrationMessage(html) {
  * --------------------------------------------------------------- */
 
 function snapNiceNumber(val) {
-    // Standard map/surveying grid dimensions in meters (descending)
     const standardGridSizes = [1000, 500, 250, 200, 100, 50, 25, 20, 10, 5, 2, 1];
 
     for (const step of standardGridSizes) {
         const rounded = Math.round(val / step) * step;
-        // Accept the largest standard round dimension within 10% tolerance
         if (rounded > 0 && Math.abs(val - rounded) / val <= 0.10) {
             return rounded;
         }
@@ -851,7 +859,6 @@ function normaliseGrid() {
 
     const metrics = gridMetrics();
 
-    // 1. Cell size snapping
     let W = metrics.width;
     let H = metrics.height;
 
@@ -864,17 +871,14 @@ function normaliseGrid() {
         H = snapNiceNumber(H);
     }
 
-    // 2. Alignment / bearing snapping
     const angle = snapAngle(metrics.angleX);
     const rad = degToRad(angle);
 
-    // 3. Perfect perpendicular affine coefficients
     const a = Math.sin(rad) / W;
     const b = Math.cos(rad) / W;
     const d = Math.cos(rad) / H;
     const e = -Math.sin(rad) / H;
 
-    // 4. Calculate local ground meters for grid corner (0,0) from P1
     const targetCol = ref1.col + alignOffset;
     const targetRow = ref1.row + alignOffset;
 
@@ -887,11 +891,9 @@ function normaliseGrid() {
     let x0 = (e * Rx - b * Ry) / det;
     let y0 = (-d * Rx + a * Ry) / det;
 
-    // 5. Snap grid corner (0,0) to nearest round metric offset
     const x0_snapped = snapOriginCoord(x0);
     const y0_snapped = snapOriginCoord(y0);
 
-    // 6. Apply constants derived from snapped origin
     calibration.a = a;
     calibration.b = b;
     calibration.c = -(a * x0_snapped + b * y0_snapped);
@@ -899,7 +901,6 @@ function normaliseGrid() {
     calibration.e = e;
     calibration.f = -(d * x0_snapped + e * y0_snapped);
 
-    // Update UI & Map
     const newInfo = gridMetrics();
     const originShift = Math.hypot(x0 - x0_snapped, y0 - y0_snapped);
 
@@ -1597,142 +1598,115 @@ function bearing(a, b) {
 
 
 /* ---------------------------------------------------------------
- * Save / load
+ * Save / Load & Import / Export
  * --------------------------------------------------------------- */
 
-function saveGrid() {
-
-    const data = {
-
-        columns:
-            document.getElementById(
-                "columns"
-            ).value,
-
-        rows:
-            document.getElementById(
-                "rows"
-            ).value,
-
-        alignment:
-            document.getElementById(
-                "gridAlignment"
-            ).value,
-
+function getGridData() {
+    return {
+        columns: document.getElementById("columns").value,
+        rows: document.getElementById("rows").value,
+        alignment: document.getElementById("gridAlignment").value,
         refs: [
             document.getElementById("ref1").value,
             document.getElementById("ref2").value,
             document.getElementById("ref3").value,
             document.getElementById("ref4").value
         ],
-
-        points:
-            calibrationPoints,
-
-        calibration
+        points: calibrationPoints,
+        calibration: calibration
     };
+}
 
-    localStorage.setItem(
-        "localGrid",
-        JSON.stringify(data)
-    );
 
-    alert(
-        "Grid saved on this device."
-    );
+function applyGridData(data) {
+    document.getElementById("columns").value = data.columns || 71;
+    document.getElementById("rows").value = data.rows || 44;
+
+    if (data.alignment) {
+        document.getElementById("gridAlignment").value = data.alignment;
+    }
+
+    if (data.refs) {
+        document.getElementById("ref1").value = data.refs[0] || "A1";
+        document.getElementById("ref2").value = data.refs[1] || "B1";
+        document.getElementById("ref3").value = data.refs[2] || "A2";
+        document.getElementById("ref4").value = data.refs[3] || "";
+    }
+
+    calibrationPoints = data.points || {};
+    calibration = data.calibration || null;
+
+    if (calibration) {
+        drawGrid();
+        zoomToGrid();
+        setCalibrationMessage("Grid loaded successfully.");
+    }
+
+    for (let n = 1; n <= 3; n++) {
+        if (calibrationPoints[n]) {
+            addPointMarker(
+                calibrationPoints[n],
+                document.getElementById("ref" + n).value
+            );
+        }
+    }
+}
+
+
+function saveGrid() {
+    localStorage.setItem("localGrid", JSON.stringify(getGridData()));
+    alert("Grid saved to browser local storage.");
 }
 
 
 function loadGrid() {
-
-    const raw =
-        localStorage.getItem(
-            "localGrid"
-        );
-
+    const raw = localStorage.getItem("localGrid");
     if (!raw) {
-
-        alert(
-            "No saved grid."
-        );
-
+        alert("No saved grid found in local storage.");
         return;
     }
 
     try {
-
-        const data =
-            JSON.parse(raw);
-
-        document.getElementById(
-            "columns"
-        ).value = data.columns;
-
-        document.getElementById(
-            "rows"
-        ).value = data.rows;
-
-        if (data.alignment) {
-            document.getElementById(
-                "gridAlignment"
-            ).value = data.alignment;
-        }
-
-        document.getElementById(
-            "ref1"
-        ).value = data.refs[0];
-
-        document.getElementById(
-            "ref2"
-        ).value = data.refs[1];
-
-        document.getElementById(
-            "ref3"
-        ).value = data.refs[2];
-
-        document.getElementById(
-            "ref4"
-        ).value = data.refs[3];
-
-        calibrationPoints =
-            data.points || {};
-
-        calibration =
-            data.calibration || null;
-
-        if (calibration) {
-
-            drawGrid();
-            zoomToGrid();
-
-            setCalibrationMessage(
-                "Saved grid loaded."
-            );
-        }
-
-        for (let n = 1; n <= 3; n++) {
-
-            if (calibrationPoints[n]) {
-
-                addPointMarker(
-                    calibrationPoints[n],
-                    document.getElementById(
-                        "ref" + n
-                    ).value
-                );
-            }
-        }
-
-        alert(
-            "Grid loaded."
-        );
-
+        applyGridData(JSON.parse(raw));
+        alert("Grid loaded from local storage.");
     } catch (e) {
-
-        alert(
-            "Could not load saved grid."
-        );
+        alert("Could not load saved grid from local storage.");
     }
+}
+
+
+function exportGridFile() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(getGridData(), null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", "local_grid.json");
+    document.body.appendChild(dlAnchorElem);
+    dlAnchorElem.click();
+    dlAnchorElem.remove();
+}
+
+
+function importGridFile() {
+    document.getElementById("gridFileInput").click();
+}
+
+
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+            applyGridData(data);
+            alert("Grid file imported successfully.");
+        } catch (err) {
+            alert("Error reading JSON file. Make sure it is a valid grid file.");
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
 }
 
 
