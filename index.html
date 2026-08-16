@@ -92,7 +92,6 @@
         margin-bottom: 8px;
     }
 
-    /* Target class for hideConfig state */
     body.hide-config-mode .config-card {
         display: none !important;
     }
@@ -146,7 +145,7 @@
         pointer-events: none;
     }
 
-    /* Modal dialog for QR Code */
+    /* Expanded Modal & Responsive QR Canvas */
     #qrModal {
         display: none;
         position: fixed;
@@ -154,7 +153,7 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background: rgba(0,0,0,0.6);
+        background: rgba(0,0,0,0.65);
         z-index: 2000;
         align-items: center;
         justify-content: center;
@@ -163,15 +162,17 @@
     .modal-box {
         background: white;
         padding: 20px;
-        border-radius: 10px;
-        max-width: 320px;
-        width: 90%;
+        border-radius: 12px;
+        width: 92vw;
+        max-width: 460px;
         text-align: center;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.35);
     }
 
-    #qrcode img {
+    #qrcode img, #qrcode canvas {
         margin: 0 auto;
+        max-width: 100% !important;
+        height: auto !important;
     }
 
     @media (orientation: landscape) {
@@ -357,12 +358,12 @@
 
 </div>
 
-<!-- Modal for displaying generated QR code -->
+<!-- Expanded QR Code Modal Dialog -->
 <div id="qrModal">
     <div class="modal-box">
-        <h3>Grid Share QR Code</h3>
+        <h3 style="margin-top:0;">Grid Share QR Code</h3>
         <div id="qrcode" style="display:flex; justify-content:center; margin:15px 0;"></div>
-        <p class="small">Scanning this code opens the grid on mobile with configuration cards hidden (<b>hideConfig=true</b>).</p>
+        <p class="small">Scan to load grid configuration directly with <b>hideConfig=true</b> enabled.</p>
         <button onclick="closeQRModal()" class="primary" style="margin-top:10px; width:100%;">Close</button>
     </div>
 </div>
@@ -397,7 +398,7 @@ map.setView([51.5, -0.12], 12);
 
 
 /* ---------------------------------------------------------------
- * Application state & Dynamic Markers
+ * Application State & Markers
  * --------------------------------------------------------------- */
 
 let calibrationPoints = {};
@@ -408,7 +409,7 @@ let gridLayer = L.layerGroup().addTo(map);
 let currentMarker = null;
 let targetMarker = null;
 
-let mapMarkers = {}; // Managed map markers with popups
+let mapMarkers = {};
 
 let gpsWatch = null;
 let currentGeo = null;
@@ -418,25 +419,23 @@ let targetGeo = null;
 
 
 /* ---------------------------------------------------------------
- * URL State Parsing (hideConfig & Embedded Calibration)
+ * URL State Parsing (Handles Legacy and Compact QR Payload Formats)
  * --------------------------------------------------------------- */
 
 window.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
     
-    // Set hideConfig if parameter present
     if (params.get('hideConfig') === 'true' || params.get('hideConfig') === '1') {
         document.body.classList.add('hide-config-mode');
     }
 
-    // Load state from hash payload if present
     if (window.location.hash && window.location.hash.length > 1) {
         try {
             const rawHash = decodeURIComponent(window.location.hash.substring(1));
             const data = JSON.parse(rawHash);
             applyGridData(data);
         } catch(e) {
-            console.error("Could not parse hash payload", e);
+            console.error("Could not parse payload from hash URL", e);
         }
     }
 });
@@ -486,7 +485,6 @@ function removePoint(id) {
 
     item.marker.remove();
 
-    // Reset reference calibration data if calibration point is removed
     if (id === 'p1') delete calibrationPoints[1];
     if (id === 'p2') delete calibrationPoints[2];
     if (id === 'p3') delete calibrationPoints[3];
@@ -516,7 +514,7 @@ function renamePoint(id) {
 
 
 /* ---------------------------------------------------------------
- * Excel-style column labels
+ * Column Label Formatting
  * --------------------------------------------------------------- */
 
 function columnLabel(index) {
@@ -578,72 +576,43 @@ function makeRef(col, row) {
 
 
 /* ---------------------------------------------------------------
- * Local geographic coordinates
+ * Geographic Projection & Transformations
  * --------------------------------------------------------------- */
 
 const EARTH_RADIUS = 6378137;
 
-
-function degToRad(x) {
-    return x * Math.PI / 180;
-}
-
-
-function radToDeg(x) {
-    return x * 180 / Math.PI;
-}
-
+function degToRad(x) { return x * Math.PI / 180; }
+function radToDeg(x) { return x * 180 / Math.PI; }
 
 function localXY(geo, origin) {
     const lat0 = degToRad(origin.lat);
-
     return {
-        x:
-            EARTH_RADIUS *
-            degToRad(geo.lon - origin.lon) *
-            Math.cos(lat0),
-
-        y:
-            EARTH_RADIUS *
-            degToRad(geo.lat - origin.lat)
+        x: EARTH_RADIUS * degToRad(geo.lon - origin.lon) * Math.cos(lat0),
+        y: EARTH_RADIUS * degToRad(geo.lat - origin.lat)
     };
 }
 
-
 function geoFromLocal(xy, origin) {
     const lat0 = degToRad(origin.lat);
-
     return {
-        lat:
-            origin.lat +
-            radToDeg(xy.y / EARTH_RADIUS),
-
-        lon:
-            origin.lon +
-            radToDeg(
-                xy.x /
-                (EARTH_RADIUS * Math.cos(lat0))
-            )
+        lat: origin.lat + radToDeg(xy.y / EARTH_RADIUS),
+        lon: origin.lon + radToDeg(xy.x / (EARTH_RADIUS * Math.cos(lat0)))
     };
 }
 
 
 /* ---------------------------------------------------------------
- * Solve 3x3 linear system
+ * Matrix Solver
  * --------------------------------------------------------------- */
 
 function solve3(A, b) {
-
     A = A.map(row => row.slice());
     b = b.slice();
 
     for (let i = 0; i < 3; i++) {
-
         let pivot = i;
-
         for (let r = i + 1; r < 3; r++) {
-            if (Math.abs(A[r][i]) > Math.abs(A[pivot][i]))
-                pivot = r;
+            if (Math.abs(A[r][i]) > Math.abs(A[pivot][i])) pivot = r;
         }
 
         if (Math.abs(A[pivot][i]) < 1e-12)
@@ -653,46 +622,28 @@ function solve3(A, b) {
         [b[i], b[pivot]] = [b[pivot], b[i]];
 
         const p = A[i][i];
-
-        for (let j = i; j < 3; j++)
-            A[i][j] /= p;
-
+        for (let j = i; j < 3; j++) A[i][j] /= p;
         b[i] /= p;
 
         for (let r = 0; r < 3; r++) {
-
-            if (r === i)
-                continue;
-
+            if (r === i) continue;
             const f = A[r][i];
-
-            for (let j = i; j < 3; j++)
-                A[r][j] -= f * A[i][j];
-
+            for (let j = i; j < 3; j++) A[r][j] -= f * A[i][j];
             b[r] -= f * b[i];
         }
     }
-
     return b;
 }
 
 
-/* ---------------------------------------------------------------
- * Affine transform
- * --------------------------------------------------------------- */
-
 function makeAffine(points, origin) {
-
     const A = [];
     const bx = [];
     const by = [];
 
     for (const p of points) {
-
         const xy = localXY(p.geo, origin);
-
         A.push([xy.x, xy.y, 1]);
-
         bx.push(p.grid.col);
         by.push(p.grid.row);
     }
@@ -701,23 +652,15 @@ function makeAffine(points, origin) {
     const ty = solve3(A, by);
 
     return {
-        a: tx[0],
-        b: tx[1],
-        c: tx[2],
-
-        d: ty[0],
-        e: ty[1],
-        f: ty[2],
-
+        a: tx[0], b: tx[1], c: tx[2],
+        d: ty[0], e: ty[1], f: ty[2],
         origin
     };
 }
 
 
 function geoToGrid(geo, t) {
-
     const p = localXY(geo, t.origin);
-
     return {
         x: t.a * p.x + t.b * p.y + t.c,
         y: t.d * p.x + t.e * p.y + t.f
@@ -726,68 +669,38 @@ function geoToGrid(geo, t) {
 
 
 function gridToGeo(grid, t) {
-
     const X = grid.x - t.c;
     const Y = grid.y - t.f;
-
     const det = t.a * t.e - t.b * t.d;
 
     if (Math.abs(det) < 1e-12)
         throw new Error("Invalid transformation.");
 
-    const x =
-        (t.e * X - t.b * Y) / det;
+    const x = (t.e * X - t.b * Y) / det;
+    const y = (-t.d * X + t.a * Y) / det;
 
-    const y =
-        (-t.d * X + t.a * Y) / det;
-
-    return geoFromLocal(
-        { x, y },
-        t.origin
-    );
+    return geoFromLocal({ x, y }, t.origin);
 }
 
 
 /* ---------------------------------------------------------------
- * Calibration & Metrics
+ * Grid Calibration & Metrics
  * --------------------------------------------------------------- */
 
 function getGridSize() {
-
     return {
-        cols:
-            Math.max(
-                1,
-                parseInt(
-                    document.getElementById("columns").value,
-                    10
-                ) || 71
-            ),
-
-        rows:
-            Math.max(
-                1,
-                parseInt(
-                    document.getElementById("rows").value,
-                    10
-                ) || 44
-            )
+        cols: Math.max(1, parseInt(document.getElementById("columns").value, 10) || 71),
+        rows: Math.max(1, parseInt(document.getElementById("rows").value, 10) || 44)
     };
 }
 
 
 function calibrate() {
-
     const required = [1, 2, 3];
 
     for (const n of required) {
-
         if (!calibrationPoints[n]) {
-
-            setCalibrationMessage(
-                "Please pick all three calibration points."
-            );
-
+            setCalibrationMessage("Please pick all three calibration points.");
             return;
         }
     }
@@ -800,19 +713,12 @@ function calibrate() {
 
     const alignMode = document.getElementById("gridAlignment").value;
     const alignOffset = (alignMode === "center") ? 0.5 : 0.0;
-
     const points = [];
 
     for (let i = 0; i < 3; i++) {
-
         const ref = parseRef(refs[i]);
-
         if (!ref) {
-
-            setCalibrationMessage(
-                "Invalid calibration reference: " + refs[i]
-            );
-
+            setCalibrationMessage("Invalid calibration reference: " + refs[i]);
             return;
         }
 
@@ -826,150 +732,86 @@ function calibrate() {
     }
 
     const origin = {
-        lat:
-            points.reduce(
-                (s, p) => s + p.geo.lat,
-                0
-            ) / points.length,
-
-        lon:
-            points.reduce(
-                (s, p) => s + p.geo.lon,
-                0
-            ) / points.length
+        lat: points.reduce((s, p) => s + p.geo.lat, 0) / points.length,
+        lon: points.reduce((s, p) => s + p.geo.lon, 0) / points.length
     };
 
     try {
-
-        calibration = makeAffine(
-            points,
-            origin
-        );
-
+        calibration = makeAffine(points, origin);
         const info = gridMetrics();
 
         setCalibrationMessage(
             "Grid calibrated.<br>" +
-            "Approx. cell width: <b>" +
-            info.width.toFixed(2) +
-            " m</b><br>" +
-            "Approx. cell height: <b>" +
-            info.height.toFixed(2) +
-            " m</b><br>" +
-            "Grid X direction: <b>" +
-            info.angleX.toFixed(2) +
-            "°</b> clockwise from north<br>" +
-            "Grid Y direction: <b>" +
-            info.angleY.toFixed(2) +
-            "°</b> clockwise from north"
+            "Approx. cell width: <b>" + info.width.toFixed(2) + " m</b><br>" +
+            "Approx. cell height: <b>" + info.height.toFixed(2) + " m</b><br>" +
+            "Grid X direction: <b>" + info.angleX.toFixed(2) + "°</b> clockwise from north<br>" +
+            "Grid Y direction: <b>" + info.angleY.toFixed(2) + "°</b> clockwise from north"
         );
 
         drawGrid();
         zoomToGrid();
 
-        if (currentGeo)
-            updateCurrent();
-
-        if (document.getElementById("targetRef").value)
-            findTarget();
+        if (currentGeo) updateCurrent();
+        if (document.getElementById("targetRef").value) findTarget();
 
     } catch (e) {
-
-        setCalibrationMessage(
-            "Calibration failed: " + e.message
-        );
+        setCalibrationMessage("Calibration failed: " + e.message);
     }
 }
 
 
 function gridMetrics() {
-
-    const g0 = gridToGeo(
-        { x: 0, y: 0 },
-        calibration
-    );
-
-    const gx = gridToGeo(
-        { x: 1, y: 0 },
-        calibration
-    );
-
-    const gy = gridToGeo(
-        { x: 0, y: 1 },
-        calibration
-    );
+    const g0 = gridToGeo({ x: 0, y: 0 }, calibration);
+    const gx = gridToGeo({ x: 1, y: 0 }, calibration);
+    const gy = gridToGeo({ x: 0, y: 1 }, calibration);
 
     const x0 = localXY(g0, calibration.origin);
     const xx = localXY(gx, calibration.origin);
     const yy = localXY(gy, calibration.origin);
 
-    const dx = {
-        x: xx.x - x0.x,
-        y: xx.y - x0.y
-    };
-
-    const dy = {
-        x: yy.x - x0.x,
-        y: yy.y - x0.y
-    };
+    const dx = { x: xx.x - x0.x, y: xx.y - x0.y };
+    const dy = { x: yy.x - x0.x, y: yy.y - x0.y };
 
     const width = Math.hypot(dx.x, dx.y);
     const height = Math.hypot(dy.x, dy.y);
 
-    let angleX =
-        radToDeg(Math.atan2(dx.x, dx.y));
-
-    let angleY =
-        radToDeg(Math.atan2(dy.x, dy.y));
+    let angleX = radToDeg(Math.atan2(dx.x, dx.y));
+    let angleY = radToDeg(Math.atan2(dy.x, dy.y));
 
     if (angleX < 0) angleX += 360;
     if (angleY < 0) angleY += 360;
 
-    return {
-        width,
-        height,
-        angleX,
-        angleY
-    };
+    return { width, height, angleX, angleY };
 }
 
 
 function setCalibrationMessage(html) {
-
-    document.getElementById(
-        "calibrationResult"
-    ).innerHTML = html;
+    document.getElementById("calibrationResult").innerHTML = html;
 }
 
 
 /* ---------------------------------------------------------------
- * Normalisation Helpers & Main Function
+ * Normalisation Helpers
  * --------------------------------------------------------------- */
 
 function snapNiceNumber(val) {
     const standardGridSizes = [1000, 500, 250, 200, 100, 50, 25, 20, 10, 5, 2, 1];
-
     for (const step of standardGridSizes) {
         const rounded = Math.round(val / step) * step;
         if (rounded > 0 && Math.abs(val - rounded) / val <= 0.10) {
             return rounded;
         }
     }
-
     return Math.round(val);
 }
 
 
 function snapAngle(angle) {
     angle = (angle % 360 + 360) % 360;
-
     const cardinals = [0, 90, 180, 270, 360];
     for (const c of cardinals) {
-        if (Math.abs(angle - c) <= 3) {
-            return c % 360;
-        }
+        if (Math.abs(angle - c) <= 3) return c % 360;
     }
-
     return Math.round(angle * 2) / 2;
 }
 
@@ -978,9 +820,7 @@ function snapOriginCoord(val, maxDiff = 2.5) {
     const steps = [100, 50, 25, 10, 5, 2, 1, 0.5];
     for (const step of steps) {
         const rounded = Math.round(val / step) * step;
-        if (Math.abs(val - rounded) <= maxDiff) {
-            return rounded;
-        }
+        if (Math.abs(val - rounded) <= maxDiff) return rounded;
     }
     return val;
 }
@@ -1005,7 +845,6 @@ function normaliseGrid() {
 
     const alignMode = document.getElementById("gridAlignment").value;
     const alignOffset = (alignMode === "center") ? 0.5 : 0.0;
-
     const metrics = gridMetrics();
 
     let W = metrics.width;
@@ -1073,152 +912,70 @@ function normaliseGrid() {
  * --------------------------------------------------------------- */
 
 function armPoint(n) {
-
     pendingPoint = n;
-
-    const ref =
-        document.getElementById(
-            "ref" + n
-        ).value.toUpperCase();
-
-    document.getElementById(
-        "mapInfo"
-    ).textContent =
-        "Tap map to set " + ref;
-
-    window.scrollTo({
-        top: 0,
-        behavior: "smooth"
-    });
+    const ref = document.getElementById("ref" + n).value.toUpperCase();
+    document.getElementById("mapInfo").textContent = "Tap map to set " + ref;
+    window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 
 map.on("click", function(e) {
-
-    const geo = {
-        lat: e.latlng.lat,
-        lon: e.latlng.lng
-    };
+    const geo = { lat: e.latlng.lat, lon: e.latlng.lng };
 
     if (pendingPoint >= 1 && pendingPoint <= 3) {
-
         calibrationPoints[pendingPoint] = geo;
+        const ref = document.getElementById("ref" + pendingPoint).value.toUpperCase();
 
-        const ref =
-            document.getElementById(
-                "ref" + pendingPoint
-            ).value.toUpperCase();
-
-        if (pendingPoint === 1)
-            document.getElementById("ref1").value = ref;
-
-        if (pendingPoint === 2)
-            document.getElementById("ref2").value = ref;
-
-        if (pendingPoint === 3)
-            document.getElementById("ref3").value = ref;
+        if (pendingPoint === 1) document.getElementById("ref1").value = ref;
+        if (pendingPoint === 2) document.getElementById("ref2").value = ref;
+        if (pendingPoint === 3) document.getElementById("ref3").value = ref;
 
         setInteractiveMarker("p" + pendingPoint, geo, ref);
-
         pendingPoint = null;
 
-        document.getElementById(
-            "mapInfo"
-        ).textContent =
-            "Point set: " + ref;
-
+        document.getElementById("mapInfo").textContent = "Point set: " + ref;
         return;
     }
 
     if (pendingPoint === 4) {
-
         if (!calibration) {
-
-            alert(
-                "Calibrate the grid first."
-            );
-
+            alert("Calibrate the grid first.");
             pendingPoint = null;
             return;
         }
 
-        const ref =
-            parseRef(
-                document.getElementById(
-                    "ref4"
-                ).value
-            );
-
+        const ref = parseRef(document.getElementById("ref4").value);
         if (!ref) {
-
-            alert(
-                "Invalid check-point reference."
-            );
-
+            alert("Invalid check-point reference.");
             return;
         }
 
         const alignMode = document.getElementById("gridAlignment").value;
         const alignOffset = (alignMode === "center") ? 0.5 : 0.0;
 
-        const predicted =
-            gridToGeo(
-                {
-                    x: ref.col + alignOffset,
-                    y: ref.row + alignOffset
-                },
-                calibration
-            );
+        const predicted = gridToGeo({
+            x: ref.col + alignOffset,
+            y: ref.row + alignOffset
+        }, calibration);
 
-        const error =
-            distanceMetres(
-                geo,
-                predicted
-            );
+        const error = distanceMetres(geo, predicted);
 
         setInteractiveMarker("check", geo, "CHECK " + ref.label);
-
         setCalibrationMessage(
-            document.getElementById(
-                "calibrationResult"
-            ).innerHTML +
-            "<br><br>" +
-            "<b>Check point " +
-            ref.label +
-            ":</b> " +
-            error.toFixed(2) +
-            " m error."
+            document.getElementById("calibrationResult").innerHTML +
+            "<br><br><b>Check point " + ref.label + ":</b> " + error.toFixed(2) + " m error."
         );
 
         pendingPoint = null;
-
         return;
     }
 
     if (calibration) {
+        const g = geoToGrid(geo, calibration);
+        const ref = gridReferenceAt(g.x, g.y);
 
-        const g =
-            geoToGrid(
-                geo,
-                calibration
-            );
-
-        const ref =
-            gridReferenceAt(
-                g.x,
-                g.y
-            );
-
-        document.getElementById(
-            "pickedInfo"
-        ).innerHTML =
-            "<b>" +
-            ref +
-            "</b><br>" +
-            "Map position: " +
-            geo.lat.toFixed(6) +
-            ", " +
-            geo.lon.toFixed(6);
+        document.getElementById("pickedInfo").innerHTML =
+            "<b>" + ref + "</b><br>Map position: " + geo.lat.toFixed(6) + ", " + geo.lon.toFixed(6);
 
         const m = setInteractiveMarker("picked", geo, ref);
         m.openPopup();
@@ -1227,50 +984,29 @@ map.on("click", function(e) {
 
 
 /* ---------------------------------------------------------------
- * Grid reference
+ * Grid References
  * --------------------------------------------------------------- */
 
 function gridReferenceAt(x, y) {
-
     const size = getGridSize();
-
     let col = Math.floor(x);
     let row = Math.floor(y);
 
-    col = Math.max(
-        0,
-        Math.min(
-            size.cols - 1,
-            col
-        )
-    );
+    col = Math.max(0, Math.min(size.cols - 1, col));
+    row = Math.max(0, Math.min(size.rows - 1, row));
 
-    row = Math.max(
-        0,
-        Math.min(
-            size.rows - 1,
-            row
-        )
-    );
-
-    return makeRef(
-        col,
-        row
-    );
+    return makeRef(col, row);
 }
 
 
 /* ---------------------------------------------------------------
- * Grid overlay & Map View Zooming
+ * Grid Overlay & Zooming
  * --------------------------------------------------------------- */
 
 function zoomToGrid() {
-
-    if (!calibration)
-        return;
+    if (!calibration) return;
 
     const size = getGridSize();
-
     const c1 = gridToGeo({ x: 0, y: 0 }, calibration);
     const c2 = gridToGeo({ x: size.cols, y: 0 }, calibration);
     const c3 = gridToGeo({ x: size.cols, y: size.rows }, calibration);
@@ -1288,427 +1024,196 @@ function zoomToGrid() {
 
 
 function drawGrid() {
-
     gridLayer.clearLayers();
-
-    if (!calibration)
-        return;
+    if (!calibration) return;
 
     const size = getGridSize();
 
     for (let c = 0; c <= size.cols; c++) {
-
         const pts = [];
-
         for (let r = 0; r <= size.rows; r++) {
-
-            const g =
-                gridToGeo(
-                    {
-                        x: c,
-                        y: r
-                    },
-                    calibration
-                );
-
-            pts.push([
-                g.lat,
-                g.lon
-            ]);
+            const g = gridToGeo({ x: c, y: r }, calibration);
+            pts.push([g.lat, g.lon]);
         }
-
-        L.polyline(
-            pts,
-            {
-                weight: 1,
-                opacity: .55
-            }
-        ).addTo(gridLayer);
+        L.polyline(pts, { weight: 1, opacity: .55 }).addTo(gridLayer);
     }
 
     for (let r = 0; r <= size.rows; r++) {
-
         const pts = [];
-
         for (let c = 0; c <= size.cols; c++) {
-
-            const g =
-                gridToGeo(
-                    {
-                        x: c,
-                        y: r
-                    },
-                    calibration
-                );
-
-            pts.push([
-                g.lat,
-                g.lon
-            ]);
+            const g = gridToGeo({ x: c, y: r }, calibration);
+            pts.push([g.lat, g.lon]);
         }
-
-        L.polyline(
-            pts,
-            {
-                weight: 1,
-                opacity: .55
-            }
-        ).addTo(gridLayer);
+        L.polyline(pts, { weight: 1, opacity: .55 }).addTo(gridLayer);
     }
 }
 
 
 /* ---------------------------------------------------------------
- * GPS
+ * GPS Tracking
  * --------------------------------------------------------------- */
 
 function startGPS() {
-
     if (!navigator.geolocation) {
-
-        alert(
-            "This browser does not provide GPS."
-        );
-
+        alert("This browser does not provide GPS.");
         return;
     }
 
     stopGPS();
+    document.getElementById("gpsInfo").textContent = "Waiting for GPS…";
 
-    document.getElementById(
-        "gpsInfo"
-    ).textContent =
-        "Waiting for GPS…";
-
-    gpsWatch =
-        navigator.geolocation.watchPosition(
-            position => {
-
-                currentGeo = {
-                    lat: position.coords.latitude,
-                    lon: position.coords.longitude
-                };
-
-                updateCurrent(
-                    position.coords.accuracy
-                );
-
-            },
-
-            error => {
-
-                document.getElementById(
-                    "gpsInfo"
-                ).textContent =
-                    "GPS error: " +
-                    error.message;
-            },
-
-            {
-                enableHighAccuracy: true,
-                maximumAge: 2000,
-                timeout: 15000
-            }
-        );
+    gpsWatch = navigator.geolocation.watchPosition(
+        position => {
+            currentGeo = {
+                lat: position.coords.latitude,
+                lon: position.coords.longitude
+            };
+            updateCurrent(position.coords.accuracy);
+        },
+        error => {
+            document.getElementById("gpsInfo").textContent = "GPS error: " + error.message;
+        },
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+    );
 }
 
 
 function stopGPS() {
-
     if (gpsWatch !== null) {
-
-        navigator.geolocation.clearWatch(
-            gpsWatch
-        );
-
+        navigator.geolocation.clearWatch(gpsWatch);
         gpsWatch = null;
     }
 }
 
 
 function updateCurrent(accuracy) {
+    if (!currentGeo) return;
 
-    if (!currentGeo)
-        return;
+    if (currentMarker) currentMarker.remove();
 
-    if (currentMarker)
-        currentMarker.remove();
-
-    currentMarker =
-        L.circleMarker(
-            [
-                currentGeo.lat,
-                currentGeo.lon
-            ],
-            {
-                radius: 8,
-                weight: 3,
-                fillOpacity: .8
-            }
-        ).addTo(map);
+    currentMarker = L.circleMarker([currentGeo.lat, currentGeo.lon], {
+        radius: 8, weight: 3, fillOpacity: .8
+    }).addTo(map);
 
     if (!calibration) {
-
-        document.getElementById(
-            "currentRef"
-        ).textContent = "—";
-
+        document.getElementById("currentRef").textContent = "—";
     } else {
-
-        const g =
-            geoToGrid(
-                currentGeo,
-                calibration
-            );
-
-        const ref =
-            gridReferenceAt(
-                g.x,
-                g.y
-            );
-
-        document.getElementById(
-            "currentRef"
-        ).textContent = ref;
+        const g = geoToGrid(currentGeo, calibration);
+        const ref = gridReferenceAt(g.x, g.y);
+        document.getElementById("currentRef").textContent = ref;
     }
 
-    let text =
-        currentGeo.lat.toFixed(6) +
-        ", " +
-        currentGeo.lon.toFixed(6);
-
+    let text = currentGeo.lat.toFixed(6) + ", " + currentGeo.lon.toFixed(6);
     if (accuracy !== undefined) {
-
-        text +=
-            "  ±" +
-            accuracy.toFixed(1) +
-            " m";
+        text += "  ±" + accuracy.toFixed(1) + " m";
     }
 
-    document.getElementById(
-        "gpsInfo"
-    ).textContent = text;
+    document.getElementById("gpsInfo").textContent = text;
 }
 
 
 /* ---------------------------------------------------------------
- * Target
+ * Target Searching
  * --------------------------------------------------------------- */
 
 function findTarget() {
-
     if (!calibration) {
-
-        alert(
-            "Calibrate the grid first."
-        );
-
+        alert("Calibrate the grid first.");
         return;
     }
 
-    const parsed =
-        parseRef(
-            document.getElementById(
-                "targetRef"
-            ).value
-        );
-
+    const parsed = parseRef(document.getElementById("targetRef").value);
     if (!parsed) {
-
-        alert(
-            "Invalid grid reference."
-        );
-
+        alert("Invalid grid reference.");
         return;
     }
 
     const size = getGridSize();
-
-    if (
-        parsed.col >= size.cols ||
-        parsed.row >= size.rows
-    ) {
-
-        alert(
-            "Reference is outside the configured grid."
-        );
-
+    if (parsed.col >= size.cols || parsed.row >= size.rows) {
+        alert("Reference is outside the configured grid.");
         return;
     }
 
-    const geo =
-        gridToGeo(
-            {
-                x: parsed.col + .5,
-                y: parsed.row + .5
-            },
-            calibration
-        );
+    const geo = gridToGeo({
+        x: parsed.col + .5,
+        y: parsed.row + .5
+    }, calibration);
 
     targetGeo = geo;
 
     const m = setInteractiveMarker("target", geo, parsed.label);
     m.openPopup();
 
-    map.setView(
-        [geo.lat, geo.lon],
-        Math.max(
-            map.getZoom(),
-            16
-        )
-    );
+    map.setView([geo.lat, geo.lon], Math.max(map.getZoom(), 16));
 
-    let text =
-        parsed.label +
-        "<br>" +
-        geo.lat.toFixed(6) +
-        ", " +
-        geo.lon.toFixed(6);
+    let text = parsed.label + "<br>" + geo.lat.toFixed(6) + ", " + geo.lon.toFixed(6);
 
     if (currentGeo) {
-
-        const d =
-            distanceMetres(
-                currentGeo,
-                geo
-            );
-
-        const b =
-            bearing(
-                currentGeo,
-                geo
-            );
-
-        text +=
-            "<br><b>" +
-            d.toFixed(1) +
-            " m</b>, bearing <b>" +
-            b.toFixed(0) +
-            "°</b>";
+        const d = distanceMetres(currentGeo, geo);
+        const b = bearing(currentGeo, geo);
+        text += "<br><b>" + d.toFixed(1) + " m</b>, bearing <b>" + b.toFixed(0) + "°</b>";
     }
 
-    document.getElementById(
-        "targetInfo"
-    ).innerHTML = text;
+    document.getElementById("targetInfo").innerHTML = text;
 }
 
 
 function clearTarget() {
-
     targetGeo = null;
-
     if (mapMarkers['target']) {
         removePoint('target');
     }
-
-    document.getElementById(
-        "targetInfo"
-    ).textContent = "";
+    document.getElementById("targetInfo").textContent = "";
 }
 
 
 function navigateTarget() {
-
     if (!targetGeo) {
-
         findTarget();
-
-        if (!targetGeo)
-            return;
+        if (!targetGeo) return;
     }
 
-    const url =
-        "https://www.google.com/maps/dir/?api=1" +
-        "&destination=" +
-        encodeURIComponent(
-            targetGeo.lat +
-            "," +
-            targetGeo.lon
-        );
+    const url = "https://www.google.com/maps/dir/?api=1" +
+        "&destination=" + encodeURIComponent(targetGeo.lat + "," + targetGeo.lon);
 
-    window.open(
-        url,
-        "_blank"
-    );
+    window.open(url, "_blank");
 }
 
 
 /* ---------------------------------------------------------------
- * Distance and bearing
+ * Navigation Calculations
  * --------------------------------------------------------------- */
 
 function distanceMetres(a, b) {
-
     const R = 6371000;
-
     const p1 = degToRad(a.lat);
     const p2 = degToRad(b.lat);
+    const dp = degToRad(b.lat - a.lat);
+    const dl = degToRad(b.lon - a.lon);
 
-    const dp =
-        degToRad(
-            b.lat - a.lat
-        );
-
-    const dl =
-        degToRad(
-            b.lon - a.lon
-        );
-
-    const h =
-        Math.sin(dp / 2) ** 2 +
-        Math.cos(p1) *
-        Math.cos(p2) *
-        Math.sin(dl / 2) ** 2;
-
-    return (
-        2 *
-        R *
-        Math.atan2(
-            Math.sqrt(h),
-            Math.sqrt(1 - h)
-        )
-    );
+    const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
 
 function bearing(a, b) {
-
     const p1 = degToRad(a.lat);
     const p2 = degToRad(b.lat);
+    const dl = degToRad(b.lon - a.lon);
 
-    const dl =
-        degToRad(
-            b.lon - a.lon
-        );
+    const y = Math.sin(dl) * Math.cos(p2);
+    const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
 
-    const y =
-        Math.sin(dl) *
-        Math.cos(p2);
-
-    const x =
-        Math.cos(p1) *
-        Math.sin(p2) -
-        Math.sin(p1) *
-        Math.cos(p2) *
-        Math.cos(dl);
-
-    let brg =
-        radToDeg(
-            Math.atan2(y, x)
-        );
-
-    brg =
-        (brg + 360) % 360;
-
-    return brg;
+    let brg = radToDeg(Math.atan2(y, x));
+    return (brg + 360) % 360;
 }
 
 
 /* ---------------------------------------------------------------
- * Save / Load & Import / Export
+ * Dual-Format Storage Parsing & Serialization
  * --------------------------------------------------------------- */
 
-function getGridData() {
+function getFullGridData() {
     return {
         columns: document.getElementById("columns").value,
         rows: document.getElementById("rows").value,
@@ -1724,45 +1229,91 @@ function getGridData() {
     };
 }
 
+function getCompactGridData() {
+    return {
+        c: parseInt(document.getElementById("columns").value, 10),
+        r: parseInt(document.getElementById("rows").value, 10),
+        a: document.getElementById("gridAlignment").value === "center" ? 1 : 0,
+        rf: [
+            document.getElementById("ref1").value,
+            document.getElementById("ref2").value,
+            document.getElementById("ref3").value
+        ],
+        p: [1, 2, 3].map(n => calibrationPoints[n] ? [
+            Number(calibrationPoints[n].lat.toFixed(6)),
+            Number(calibrationPoints[n].lon.toFixed(6))
+        ] : null)
+    };
+}
 
 function applyGridData(data) {
-    document.getElementById("columns").value = data.columns || 71;
-    document.getElementById("rows").value = data.rows || 44;
+    if (!data) return;
 
-    if (data.alignment) {
-        document.getElementById("gridAlignment").value = data.alignment;
+    // Detect format: Compact (new) vs Legacy (old)
+    const isCompact = data.c !== undefined;
+
+    const cols = isCompact ? data.c : data.columns;
+    const rows = isCompact ? data.r : data.rows;
+    const alignVal = isCompact ? (data.a === 1 ? "center" : "corner") : (data.alignment || "center");
+
+    document.getElementById("columns").value = cols || 71;
+    document.getElementById("rows").value = rows || 44;
+    document.getElementById("gridAlignment").value = alignVal;
+
+    let refs = [];
+    if (isCompact) {
+        refs = data.rf || ["A1", "B1", "A2"];
+    } else {
+        refs = data.refs || ["A1", "B1", "A2", ""];
     }
 
-    if (data.refs) {
-        document.getElementById("ref1").value = data.refs[0] || "A1";
-        document.getElementById("ref2").value = data.refs[1] || "B1";
-        document.getElementById("ref3").value = data.refs[2] || "A2";
-        document.getElementById("ref4").value = data.refs[3] || "";
+    document.getElementById("ref1").value = refs[0] || "A1";
+    document.getElementById("ref2").value = refs[1] || "B1";
+    document.getElementById("ref3").value = refs[2] || "A2";
+    if (!isCompact && refs[3]) {
+        document.getElementById("ref4").value = refs[3];
     }
 
-    calibrationPoints = data.points || {};
-    calibration = data.calibration || null;
+    calibrationPoints = {};
 
-    if (calibration) {
+    if (isCompact && Array.isArray(data.p)) {
+        data.p.forEach((pt, i) => {
+            if (pt && pt.length === 2) {
+                const pointNum = i + 1;
+                calibrationPoints[pointNum] = { lat: pt[0], lon: pt[1] };
+                setInteractiveMarker(
+                    "p" + pointNum,
+                    calibrationPoints[pointNum],
+                    document.getElementById("ref" + pointNum).value
+                );
+            }
+        });
+    } else if (!isCompact && data.points) {
+        calibrationPoints = data.points || {};
+        for (let n = 1; n <= 3; n++) {
+            if (calibrationPoints[n]) {
+                setInteractiveMarker(
+                    "p" + n,
+                    calibrationPoints[n],
+                    document.getElementById("ref" + n).value
+                );
+            }
+        }
+    }
+
+    if (!isCompact && data.calibration) {
+        calibration = data.calibration;
         drawGrid();
         zoomToGrid();
         setCalibrationMessage("Grid loaded successfully.");
-    }
-
-    for (let n = 1; n <= 3; n++) {
-        if (calibrationPoints[n]) {
-            setInteractiveMarker(
-                "p" + n,
-                calibrationPoints[n],
-                document.getElementById("ref" + n).value
-            );
-        }
+    } else if (calibrationPoints[1] && calibrationPoints[2] && calibrationPoints[3]) {
+        calibrate();
     }
 }
 
 
 function saveGrid() {
-    localStorage.setItem("localGrid", JSON.stringify(getGridData()));
+    localStorage.setItem("localGrid", JSON.stringify(getFullGridData()));
     alert("Grid saved to browser local storage.");
 }
 
@@ -1784,7 +1335,7 @@ function loadGrid() {
 
 
 function exportGridFile() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(getGridData(), null, 2));
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(getFullGridData(), null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute("href", dataStr);
     dlAnchorElem.setAttribute("download", "local_grid.json");
@@ -1819,23 +1370,22 @@ function handleFileSelect(event) {
 
 
 /* ---------------------------------------------------------------
- * QR Code Generator
+ * QR Code Generation
  * --------------------------------------------------------------- */
 
 function showQRCode() {
-    const dataStr = JSON.stringify(getGridData());
+    const compactStr = JSON.stringify(getCompactGridData());
     const baseUrl = window.location.origin + window.location.pathname;
-    
-    // Construct full shareable URL with hideConfig parameter
-    const shareUrl = baseUrl + "?hideConfig=true#" + encodeURIComponent(dataStr);
+    const shareUrl = baseUrl + "?hideConfig=true#" + encodeURIComponent(compactStr);
 
     const container = document.getElementById("qrcode");
     container.innerHTML = "";
 
     new QRCode(container, {
         text: shareUrl,
-        width: 200,
-        height: 200
+        width: 320,
+        height: 320,
+        correctLevel: QRCode.CorrectLevel.L
     });
 
     document.getElementById("qrModal").style.display = "flex";
@@ -1847,23 +1397,18 @@ function closeQRModal() {
 
 
 /* ---------------------------------------------------------------
- * Reset
+ * Grid Reset
  * --------------------------------------------------------------- */
 
 function newGrid() {
-
-    if (!confirm(
-        "Reset the current grid?"
-    ))
-        return;
+    if (!confirm("Reset the current grid?")) return;
 
     calibrationPoints = {};
     calibration = null;
 
     gridLayer.clearLayers();
 
-    if (currentMarker)
-        currentMarker.remove();
+    if (currentMarker) currentMarker.remove();
 
     for (const key in mapMarkers) {
         mapMarkers[key].marker.remove();
@@ -1873,106 +1418,43 @@ function newGrid() {
     currentMarker = null;
     targetGeo = null;
 
-    document.getElementById(
-        "currentRef"
-    ).textContent = "—";
-
-    document.getElementById(
-        "targetInfo"
-    ).textContent = "";
-
-    document.getElementById(
-        "pickedInfo"
-    ).textContent =
-        "Tap the map after calibration to identify a grid cell.";
-
-    setCalibrationMessage(
-        "No calibration yet."
-    );
+    document.getElementById("currentRef").textContent = "—";
+    document.getElementById("targetInfo").textContent = "";
+    document.getElementById("pickedInfo").textContent = "Tap the map after calibration to identify a grid cell.";
+    setCalibrationMessage("No calibration yet.");
 }
 
 
 /* ---------------------------------------------------------------
- * Interval updates & Listeners
+ * Periodic Handlers & Event Listeners
  * --------------------------------------------------------------- */
 
 setInterval(() => {
+    if (currentGeo && targetGeo) {
+        const d = distanceMetres(currentGeo, targetGeo);
+        const b = bearing(currentGeo, targetGeo);
+        const ref = document.getElementById("targetRef").value.toUpperCase();
 
-    if (
-        currentGeo &&
-        targetGeo
-    ) {
-
-        const d =
-            distanceMetres(
-                currentGeo,
-                targetGeo
-            );
-
-        const b =
-            bearing(
-                currentGeo,
-                targetGeo
-            );
-
-        const ref =
-            document.getElementById(
-                "targetRef"
-            ).value.toUpperCase();
-
-        document.getElementById(
-            "targetInfo"
-        ).innerHTML =
-            "<b>" +
-            ref +
-            "</b><br>" +
-            targetGeo.lat.toFixed(6) +
-            ", " +
-            targetGeo.lon.toFixed(6) +
-            "<br><b>" +
-            d.toFixed(1) +
-            " m</b>, bearing <b>" +
-            b.toFixed(0) +
-            "°</b>";
+        document.getElementById("targetInfo").innerHTML =
+            "<b>" + ref + "</b><br>" +
+            targetGeo.lat.toFixed(6) + ", " + targetGeo.lon.toFixed(6) +
+            "<br><b>" + d.toFixed(1) + " m</b>, bearing <b>" + b.toFixed(0) + "°</b>";
     }
-
 }, 1000);
 
+document.getElementById("columns").addEventListener("change", () => {
+    if (calibration) { drawGrid(); zoomToGrid(); }
+});
 
-document.getElementById(
-    "columns"
-).addEventListener(
-    "change",
-    () => {
-        if (calibration) {
-            drawGrid();
-            zoomToGrid();
-        }
-    }
-);
+document.getElementById("rows").addEventListener("change", () => {
+    if (calibration) { drawGrid(); zoomToGrid(); }
+});
 
-document.getElementById(
-    "rows"
-).addEventListener(
-    "change",
-    () => {
-        if (calibration) {
-            drawGrid();
-            zoomToGrid();
-        }
+document.getElementById("gridAlignment").addEventListener("change", () => {
+    if (calibrationPoints[1] && calibrationPoints[2] && calibrationPoints[3]) {
+        calibrate();
     }
-);
-
-document.getElementById(
-    "gridAlignment"
-).addEventListener(
-    "change",
-    () => {
-        if (calibrationPoints[1] && calibrationPoints[2] && calibrationPoints[3]) {
-            calibrate();
-        }
-    }
-);
+});
 
 </script>
 
