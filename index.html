@@ -5,7 +5,7 @@
 <meta name="viewport"
       content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 
-<title>gridder</title>
+<title>Local Grid</title>
 
 <link rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
@@ -91,8 +91,14 @@
         margin-bottom: 8px;
     }
 
-    body.hide-config-mode .config-card,
-    body.hide-config-mode #configToggleBtn {
+    body.hide-config-mode .config-card {
+        display: none !important;
+    }
+
+    /* Only a shared/viewer link gets this class — it's what actually
+       removes the toggle button. The creator's own self-toggle (below)
+       never adds it, so their button always stays available. */
+    body.config-locked #configToggleBtn {
         display: none !important;
     }
 
@@ -652,8 +658,7 @@ function loadFromHash() {
     const params = new URLSearchParams(window.location.search);
     
     if (params.get('hideConfig') === 'true' || params.get('hideConfig') === '1') {
-        document.body.classList.add('hide-config-mode');
-        configLocked = true;
+        lockConfigForSession();
     }
 
     if (window.location.hash && window.location.hash.length > 1) {
@@ -662,8 +667,7 @@ function loadFromHash() {
             const data = JSON.parse(rawHash);
             
             if (data.hc === 1 || data.hideConfig === true) {
-                document.body.classList.add('hide-config-mode');
-                configLocked = true;
+                lockConfigForSession();
             }
 
             applyGridData(data);
@@ -673,6 +677,17 @@ function loadFromHash() {
     } else {
         updateShareButtonVisibility();
     }
+}
+
+function lockConfigForSession() {
+    // Only reached via a shared/viewer link (hc:1 or ?hideConfig=). This
+    // permanently removes both the config panel AND the toggle button
+    // for this page load — never called from the creator's own toggle,
+    // which stays fully reversible with the button always available.
+    document.body.classList.add('hide-config-mode');
+    document.body.classList.add('config-locked');
+    configLocked = true;
+    document.getElementById('configToggleBtn').disabled = true;
 }
 
 window.addEventListener('DOMContentLoaded', loadFromHash);
