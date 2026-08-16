@@ -323,6 +323,10 @@
                 Start GPS
             </button>
 
+            <button onclick="zoomToCurrent()">
+                🎯 Zoom to me
+            </button>
+
             <button onclick="stopGPS()">
                 Stop GPS
             </button>
@@ -408,8 +412,9 @@ let gpsWatch = null;
 let currentGeo = null;
 let pendingPoint = null;
 let targetGeo = null;
+let zoomToMeStep = 0;
 
-window.addEventListener('DOMContentLoaded', () => {
+function loadFromHash() {
     const params = new URLSearchParams(window.location.search);
     
     if (params.get('hideConfig') === 'true' || params.get('hideConfig') === '1') {
@@ -418,7 +423,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (window.location.hash && window.location.hash.length > 1) {
         try {
-            const rawHash = decodeURIComponent(window.location.hash.substring(1));
+            const rawHash = decodeURIComponent(window.location.hash.substring(1).trim());
             const data = JSON.parse(rawHash);
             
             if (data.hc === 1 || data.hideConfig === true) {
@@ -432,7 +437,10 @@ window.addEventListener('DOMContentLoaded', () => {
     } else {
         updateShareButtonVisibility();
     }
-});
+}
+
+window.addEventListener('DOMContentLoaded', loadFromHash);
+window.addEventListener('hashchange', loadFromHash);
 
 function toggleConfigUI() {
     document.body.classList.toggle('hide-config-mode');
@@ -940,20 +948,24 @@ function gridReferenceAt(x, y) {
 function zoomToGrid() {
     if (!calibration) return;
 
-    const size = getGridSize();
-    const c1 = gridToGeo({ x: 0, y: 0 }, calibration);
-    const c2 = gridToGeo({ x: size.cols, y: 0 }, calibration);
-    const c3 = gridToGeo({ x: size.cols, y: size.rows }, calibration);
-    const c4 = gridToGeo({ x: 0, y: size.rows }, calibration);
+    setTimeout(() => {
+        map.invalidateSize();
 
-    const bounds = L.latLngBounds([
-        [c1.lat, c1.lon],
-        [c2.lat, c2.lon],
-        [c3.lat, c3.lon],
-        [c4.lat, c4.lon]
-    ]);
+        const size = getGridSize();
+        const c1 = gridToGeo({ x: 0, y: 0 }, calibration);
+        const c2 = gridToGeo({ x: size.cols, y: 0 }, calibration);
+        const c3 = gridToGeo({ x: size.cols, y: size.rows }, calibration);
+        const c4 = gridToGeo({ x: 0, y: size.rows }, calibration);
 
-    map.fitBounds(bounds, { padding: [20, 20] });
+        const bounds = L.latLngBounds([
+            [c1.lat, c1.lon],
+            [c2.lat, c2.lon],
+            [c3.lat, c3.lon],
+            [c4.lat, c4.lon]
+        ]);
+
+        map.fitBounds(bounds, { padding: [20, 20] });
+    }, 100);
 }
 
 function drawGrid() {
@@ -1010,6 +1022,105 @@ function stopGPS() {
         navigator.geolocation.clearWatch(gpsWatch);
         gpsWatch = null;
     }
+}
+
+function zoomToCurrent() {
+    if (!currentGeo) {
+        alert("GPS position not available yet. Please start GPS first.");
+        return;
+    }
+    map.invalidateSize();
+
+    let minZoom = 12;
+    let maxZoom = 19;
+
+    if (calibration) {
+        const size = getGridSize();
+        const c1 = gridToGeo({ x: 0, y: 0 }, calibration);
+        const c2 = gridToGeo({ x: size.cols, y: 0 }, calibration);
+        const c3 = gridToGeo({ x: size.cols, y: size.rows }, calibration);
+        const c4 = gridToGeo({ x: 0, y: size.rows }, calibration);
+
+        const gridBounds = L.latLngBounds([
+            [c1.lat, c1.lon],
+            [c2.lat, c2.lon],
+            [c3.lat, c3.lon],
+            [c4.lat, c4.lon]
+        ]);
+
+        minZoom = map.getBoundsZoom(gridBounds);
+
+        const g = geoToGrid(currentGeo, calibration);
+        const col = Math.floor(g.x);
+        const row = Math.floor(g.y);
+
+        const pMin = gridToGeo({ x: col - 1, y: row - 1 }, calibration);
+        const pMax = gridToGeo({ x: col + 2, y: row + 2 }, calibration);
+
+        const tightBounds = L.latLngBounds([
+            [pMin.lat, pMin.lon],
+            [pMax.lat, pMax.lon]
+        ]);
+
+        maxZoom = map.getBoundsZoom(tightBounds);
+    }
+
+    if (maxZoom <= minZoom) {
+        maxZoom = minZoom + 4;
+    }
+
+    const stepDelta = (maxZoom - minZoom) / 3;
+
+    switch (zoomToMeStep) {
+        case 0: // Step 0: Largest - Whole Grid
+            if (calibration) {
+                const size = getGridSize();
+                const c1 = gridToGeo({ x: 0, y: 0 }, calibration);
+                const c2 = gridToGeo({ x: size.cols, y: 0 }, calibration);
+                const c3 = gridToGeo({ x: size.cols, y: size.rows }, calibration);
+                const c4 = gridToGeo({ x: 0, y: size.rows }, calibration);
+
+                const gridBounds = L.latLngBounds([
+                    [c1.lat, c1.lon],
+                    [c2.lat, c2.lon],
+                    [c3.lat, c3.lon],
+                    [c4.lat, c4.lon]
+                ]);
+                map.fitBounds(gridBounds, { padding: [20, 20] });
+            } else {
+                map.setView([currentGeo.lat, currentGeo.lon], minZoom);
+            }
+            break;
+
+        case 1: // Step 1: Medium-Wide overview
+            map.setView([currentGeo.lat, currentGeo.lon], minZoom + stepDelta);
+            break;
+
+        case 2: // Step 2: Medium-Close view
+            map.setView([currentGeo.lat, currentGeo.lon], minZoom + (stepDelta * 2));
+            break;
+
+        case 3: // Step 3: Smallest - Current grid cell + 8 surrounding cells
+            if (calibration) {
+                const g = geoToGrid(currentGeo, calibration);
+                const col = Math.floor(g.x);
+                const row = Math.floor(g.y);
+
+                const pMin = gridToGeo({ x: col - 1, y: row - 1 }, calibration);
+                const pMax = gridToGeo({ x: col + 2, y: row + 2 }, calibration);
+
+                const tightBounds = L.latLngBounds([
+                    [pMin.lat, pMin.lon],
+                    [pMax.lat, pMax.lon]
+                ]);
+                map.fitBounds(tightBounds, { padding: [10, 10] });
+            } else {
+                map.setView([currentGeo.lat, currentGeo.lon], maxZoom);
+            }
+            break;
+    }
+
+    zoomToMeStep = (zoomToMeStep + 1) % 4;
 }
 
 function updateCurrent(accuracy) {
@@ -1133,8 +1244,7 @@ function getFullGridData() {
             document.getElementById("ref3").value,
             document.getElementById("ref4").value
         ],
-        points: calibrationPoints,
-        calibration: calibration
+        points: calibrationPoints
     };
 }
 
@@ -1221,12 +1331,7 @@ function applyGridData(data) {
         }
     }
 
-    if (!isCompact && data.calibration) {
-        calibration = data.calibration;
-        drawGrid();
-        zoomToGrid();
-        setCalibrationMessage("Grid loaded successfully.");
-    } else if (calibrationPoints[1] && calibrationPoints[2] && calibrationPoints[3]) {
+    if (calibrationPoints[1] && calibrationPoints[2] && calibrationPoints[3]) {
         calibrate();
     }
 }
@@ -1316,6 +1421,7 @@ function newGrid() {
 
     calibrationPoints = {};
     calibration = null;
+    zoomToMeStep = 0;
 
     gridLayer.clearLayers();
 
