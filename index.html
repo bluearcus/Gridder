@@ -8,8 +8,7 @@
 <title>Local Grid</title>
 
 <link rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      crossorigin="">
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 
 <!-- QR Code Generator Library -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -386,11 +385,20 @@
     </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        crossorigin=""></script>
+<div id="loadError" style="display:none; position:fixed; top:0; left:0; width:100%; padding:14px; background:#a52a2a; color:white; text-align:center; z-index:3000; font-size:0.95rem;">
+    Map library failed to load — check your internet connection, then reload the page.
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
+        onerror="document.getElementById('loadError').style.display='block'"></script>
 
 <script>
 "use strict";
+
+if (typeof L === "undefined") {
+    document.getElementById("loadError").style.display = "block";
+    throw new Error("Leaflet failed to load — aborting app initialisation.");
+}
 
 const map = L.map("map", {
     zoomControl: true,
@@ -420,6 +428,7 @@ let pendingPoint = null;
 let targetGeo = null;
 let zoomToMeStep = 0;
 let configLocked = false;
+let pointCounter = 0;
 
 function loadFromHash() {
     const params = new URLSearchParams(window.location.search);
@@ -470,16 +479,27 @@ function updateShareButtonVisibility() {
     if (noConfigBtn) noConfigBtn.style.display = isAllowed ? "inline-block" : "none";
 }
 
-function setInteractiveMarker(id, geo, label) {
-    if (mapMarkers[id]) {
-        mapMarkers[id].marker.remove();
+function setInteractiveMarker(id, geo, ref, name) {
+    // ref = the grid reference (or descriptive title, e.g. "CHECK A2") -
+    // always shown and never overwritten by naming.
+    // name = an optional user-given custom name, kept separate from ref.
+    const existing = mapMarkers[id];
+    if (existing) {
+        existing.marker.remove();
+        if (name === undefined) name = existing.name; // preserve a custom name across marker refresh
     }
 
     const marker = L.marker([geo.lat, geo.lon]).addTo(map);
-    mapMarkers[id] = { id, geo, label, marker };
+    mapMarkers[id] = { id, geo, ref, name: name || null, marker };
 
     updateMarkerPopup(id);
     return marker;
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 function updateMarkerPopup(id) {
@@ -489,10 +509,11 @@ function updateMarkerPopup(id) {
     const content = document.createElement('div');
     content.style.minWidth = '130px';
     content.innerHTML = `
-        <div style="font-weight:bold; font-size:1.05rem;" id="pop-title-${id}">${item.label}</div>
-        <div class="small" style="margin-bottom:6px;">${item.geo.lat.toFixed(6)}, ${item.geo.lon.toFixed(6)}</div>
+        <div style="font-weight:bold; font-size:1.05rem;" id="pop-title-${id}">${escapeHtml(item.ref)}</div>
+        ${item.name ? `<div class="small" style="font-style:italic; margin-top:2px;">"${escapeHtml(item.name)}"</div>` : ''}
+        <div class="small" style="margin:4px 0 6px;">${item.geo.lat.toFixed(6)}, ${item.geo.lon.toFixed(6)}</div>
         <div style="display:flex; gap:4px; margin-top:6px;">
-            <button onclick="renamePoint('${id}')" style="font-size:11px; padding:3px 8px; min-height:auto;">Rename</button>
+            <button onclick="renamePoint('${id}')" style="font-size:11px; padding:3px 8px; min-height:auto;">${item.name ? 'Edit name' : 'Add name'}</button>
             <button onclick="removePoint('${id}')" style="font-size:11px; padding:3px 8px; min-height:auto;" class="danger">Remove</button>
         </div>
     `;
@@ -511,26 +532,21 @@ function removePoint(id) {
     if (id === 'p3') delete calibrationPoints[3];
 
     delete mapMarkers[id];
-
-    if (id === 'picked') {
-        document.getElementById("pickedInfo").textContent = "Tap the map after calibration to identify a grid cell.";
-    }
 }
 
 function renamePoint(id) {
     const item = mapMarkers[id];
     if (!item) return;
 
-    const newName = prompt("Enter custom name for point:", item.label);
-    if (newName && newName.trim() !== "") {
-        item.label = newName.trim();
-        updateMarkerPopup(id);
-        item.marker.openPopup();
+    const newName = prompt(
+        "Custom name for this point (grid ref " + item.ref + " will still be shown). Leave blank to clear:",
+        item.name || ""
+    );
+    if (newName === null) return; // cancelled
 
-        if (id === 'picked') {
-            document.getElementById("pickedInfo").innerHTML = `<b>${item.label}</b><br>Map position: ${item.geo.lat.toFixed(6)}, ${item.geo.lon.toFixed(6)}`;
-        }
-    }
+    item.name = newName.trim() === "" ? null : newName.trim();
+    updateMarkerPopup(id);
+    item.marker.openPopup();
 }
 
 function columnLabel(index) {
@@ -942,10 +958,14 @@ map.on("click", function(e) {
         const ref = gridReferenceAt(g.x, g.y);
         const label = ref || "Outside grid";
 
-        document.getElementById("pickedInfo").innerHTML =
-            "<b>" + label + "</b><br>Map position: " + geo.lat.toFixed(6) + ", " + geo.lon.toFixed(6);
+        pointCounter++;
+        const pointId = "pt" + pointCounter;
 
-        const m = setInteractiveMarker("picked", geo, label);
+        document.getElementById("pickedInfo").innerHTML =
+            "<b>" + label + "</b><br>Map position: " + geo.lat.toFixed(6) + ", " + geo.lon.toFixed(6) +
+            "<br><span class=\"small\">" + Object.keys(mapMarkers).filter(k => k.startsWith('pt')).length + 1 + " point(s) added — tap a marker to name or remove it.</span>";
+
+        const m = setInteractiveMarker(pointId, geo, label);
         m.openPopup();
     }
 });
@@ -1453,6 +1473,7 @@ function newGrid() {
     calibrationPoints = {};
     calibration = null;
     zoomToMeStep = 0;
+    pointCounter = 0;
 
     gridLayer.clearLayers();
 
