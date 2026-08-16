@@ -271,6 +271,19 @@
         filter: drop-shadow(0 2px 6px rgba(0,0,0,.5));
     }
 
+    .nav-arrived-icon {
+        font-size: 9rem;
+        font-weight: 900;
+        color: #ffcc00;
+        text-shadow: 0 2px 10px rgba(0,0,0,.6);
+        animation: navArrivedPulse 1s ease-in-out infinite;
+    }
+
+    @keyframes navArrivedPulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.18); }
+    }
+
     .nav-status {
         text-align: center;
         color: #ffcc80;
@@ -537,7 +550,7 @@
     <div class="nav-box">
         <div class="nav-header">
             <div id="navTargetLabel" class="nav-target-label">Target: —</div>
-            <button onclick="closeNavModal()" class="nav-close-btn">&#10005;</button>
+            <button id="navCloseIconBtn" onclick="closeNavModal()" class="nav-close-btn">&#10005;</button>
         </div>
 
         <div class="nav-compass-wrap">
@@ -548,6 +561,7 @@
                 <div class="nav-compass-tick nav-tick-w">W</div>
             </div>
             <div id="navArrow" class="nav-arrow"></div>
+            <div id="navArrivedIcon" class="nav-arrived-icon" style="display:none;">!</div>
         </div>
 
         <div id="navStatus" class="small nav-status"></div>
@@ -576,8 +590,8 @@
         </div>
 
         <div class="row" style="margin-top:10px; margin-bottom:0;">
-            <button onclick="openExternalNav()">Open in Maps</button>
-            <button onclick="closeNavModal()" class="primary" style="flex:1;">Close</button>
+            <button id="navMapsBtn" onclick="openExternalNav()">Open in Maps</button>
+            <button id="navCloseBtn" onclick="closeNavModal()" class="primary" style="flex:1;">Close</button>
         </div>
     </div>
 </div>
@@ -628,6 +642,8 @@ let configLocked = false;
 let pointCounter = 0;
 let trackHistory = [];
 let navModalOpen = false;
+let navArrived = false;
+let navAudioCtx = null;
 let lastReportedSpeed = null; // m/s from GPS, when the device supplies it
 const TRACK_WINDOW_METRES = 10;
 const TRACK_HISTORY_CAP = 200;
@@ -1684,6 +1700,28 @@ function formatEta(seconds) {
     return eta.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function playArrivalSound() {
+    if (!navAudioCtx) return;
+    if (navAudioCtx.state === "suspended") navAudioCtx.resume();
+
+    const now = navAudioCtx.currentTime;
+    const freqs = [880, 1180, 1480]; // ascending three-tone chime
+
+    freqs.forEach((f, i) => {
+        const t = now + i * 0.18;
+        const osc = navAudioCtx.createOscillator();
+        const gain = navAudioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        osc.connect(gain).connect(navAudioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.2);
+    });
+}
+
 function openNavModal() {
     if (!targetGeo) {
         findTarget();
@@ -1695,6 +1733,21 @@ function openNavModal() {
         return;
     }
 
+    // Create/unlock the audio context here, inside a direct button-click
+    // handler, so the arrival chime is allowed to play later without
+    // needing another user gesture.
+    if (!navAudioCtx) {
+        try { navAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { navAudioCtx = null; }
+    } else if (navAudioCtx.state === "suspended") {
+        navAudioCtx.resume();
+    }
+
+    navArrived = false;
+    document.getElementById("navArrow").style.display = "";
+    document.getElementById("navArrivedIcon").style.display = "none";
+    document.getElementById("navMapsBtn").disabled = false;
+
     navModalOpen = true;
     document.getElementById("navModal").style.display = "flex";
     updateNavDisplay();
@@ -1702,6 +1755,7 @@ function openNavModal() {
 
 function closeNavModal() {
     navModalOpen = false;
+    navArrived = false;
     document.getElementById("navModal").style.display = "none";
 }
 
@@ -1724,6 +1778,39 @@ function updateNavDisplay() {
     const courseAngle = bearing(currentGeo, targetGeo);
     const distance = distanceMetres(currentGeo, targetGeo);
     const trackAngle = computeTrackBearing();
+
+    // Arrival: within half a grid square of the target. Once triggered,
+    // arrival is sticky for this nav session — only dismissing clears it.
+    if (!navArrived && calibration) {
+        const metrics = gridMetrics();
+        const arrivalRadius = (metrics.width + metrics.height) / 4; // half the average cell side length
+
+        if (distance <= arrivalRadius) {
+            navArrived = true;
+            playArrivalSound();
+            document.getElementById("navArrow").style.display = "none";
+            document.getElementById("navArrivedIcon").style.display = "block";
+            // Arrival locks everything except dismissing the dialog.
+            document.getElementById("navMapsBtn").disabled = true;
+        }
+    }
+
+    if (navArrived) {
+        document.getElementById("navDistanceText").textContent = "Here";
+        document.getElementById("navTtgText").textContent = "—";
+        document.getElementById("navEtaText").textContent = "—";
+        document.getElementById("navStatus").textContent = "Arrived — dismiss to continue";
+
+        document.getElementById("navCourseText").textContent =
+            Math.round(courseAngle) + "° " + degToCompass(courseAngle);
+        document.getElementById("navTrackText").textContent = (trackAngle !== null)
+            ? Math.round(trackAngle) + "° " + degToCompass(trackAngle)
+            : "—";
+
+        const ringRotation = (trackAngle !== null) ? normalizeAngle(-trackAngle) : 0;
+        document.getElementById("navCompassRing").style.transform = "rotate(" + ringRotation + "deg)";
+        return;
+    }
 
     const relativeBearing = (trackAngle !== null)
         ? normalizeAngle(courseAngle - trackAngle)
