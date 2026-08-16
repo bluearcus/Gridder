@@ -194,6 +194,9 @@
         <button onclick="toggleConfigUI()" style="min-height:32px; padding:4px 8px; font-size:0.85rem;">
             ⚙ Toggle Config Cards
         </button>
+        <button id="noConfigShareBtn" onclick="showQRCode()" class="primary" style="min-height:32px; padding:4px 8px; font-size:0.85rem;">
+            📱 Share QR
+        </button>
     </div>
 
     <div class="card config-card">
@@ -261,6 +264,13 @@
             <button onclick="armPoint(4)">Pick</button>
         </div>
 
+        <div class="row" style="margin-bottom:10px;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; cursor:pointer;">
+                <input type="checkbox" id="allowShare" checked onchange="updateShareButtonVisibility()">
+                Allow QR Sharing in Viewer / No-Config Mode
+            </label>
+        </div>
+
         <div class="row">
             <button class="primary" onclick="calibrate()">
                 Calculate grid
@@ -286,7 +296,7 @@
                 Import File
             </button>
 
-            <button onclick="showQRCode()" class="primary">
+            <button id="configQrBtn" onclick="showQRCode()" class="primary">
                 QR Code
             </button>
 
@@ -411,7 +421,6 @@ window.addEventListener('DOMContentLoaded', () => {
             const rawHash = decodeURIComponent(window.location.hash.substring(1));
             const data = JSON.parse(rawHash);
             
-            // Activate hideConfig if set in payload flag
             if (data.hc === 1 || data.hideConfig === true) {
                 document.body.classList.add('hide-config-mode');
             }
@@ -420,11 +429,22 @@ window.addEventListener('DOMContentLoaded', () => {
         } catch(e) {
             console.error("Could not parse payload from hash URL", e);
         }
+    } else {
+        updateShareButtonVisibility();
     }
 });
 
 function toggleConfigUI() {
     document.body.classList.toggle('hide-config-mode');
+}
+
+function updateShareButtonVisibility() {
+    const isAllowed = document.getElementById("allowShare").checked;
+    const noConfigBtn = document.getElementById("noConfigShareBtn");
+    const configQrBtn = document.getElementById("configQrBtn");
+
+    if (noConfigBtn) noConfigBtn.style.display = isAllowed ? "inline-block" : "none";
+    if (configQrBtn) configQrBtn.style.display = isAllowed ? "inline-block" : "none";
 }
 
 function setInteractiveMarker(id, geo, label) {
@@ -1106,6 +1126,7 @@ function getFullGridData() {
         columns: document.getElementById("columns").value,
         rows: document.getElementById("rows").value,
         alignment: document.getElementById("gridAlignment").value,
+        allowShare: document.getElementById("allowShare").checked,
         refs: [
             document.getElementById("ref1").value,
             document.getElementById("ref2").value,
@@ -1122,7 +1143,8 @@ function getCompactGridData() {
         c: parseInt(document.getElementById("columns").value, 10),
         r: parseInt(document.getElementById("rows").value, 10),
         a: document.getElementById("gridAlignment").value === "center" ? 1 : 0,
-        hc: 1, // Embed hideConfig flag directly in hash payload
+        hc: 1,
+        s: document.getElementById("allowShare").checked ? 1 : 0,
         rf: [
             document.getElementById("ref1").value,
             document.getElementById("ref2").value,
@@ -1144,9 +1166,19 @@ function applyGridData(data) {
     const rows = isCompact ? data.r : data.rows;
     const alignVal = isCompact ? (data.a === 1 ? "center" : "corner") : (data.alignment || "center");
 
+    let allowShare = true;
+    if (isCompact) {
+        allowShare = data.s !== undefined ? data.s === 1 : true;
+    } else {
+        allowShare = data.allowShare !== undefined ? !!data.allowShare : true;
+    }
+
     document.getElementById("columns").value = cols || 71;
     document.getElementById("rows").value = rows || 44;
     document.getElementById("gridAlignment").value = alignVal;
+    document.getElementById("allowShare").checked = allowShare;
+
+    updateShareButtonVisibility();
 
     let refs = [];
     if (isCompact) {
@@ -1254,10 +1286,8 @@ function handleFileSelect(event) {
 function showQRCode() {
     const compactData = getCompactGridData();
     
-    // Construct clean base URL without query strings to prevent GitHub Pages 404s
     let baseUrl = window.location.href.split('?')[0].split('#')[0];
     
-    // Ensure trailing slash for directory routes
     if (!baseUrl.endsWith('/') && !baseUrl.endsWith('.html')) {
         baseUrl += '/';
     }
