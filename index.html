@@ -179,6 +179,132 @@
         height: auto !important;
     }
 
+    #navModal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(10,15,20,0.92);
+        z-index: 2500;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .nav-box {
+        color: white;
+        width: 100vw;
+        height: 100%;
+        max-width: 520px;
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        box-sizing: border-box;
+    }
+
+    .nav-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+    }
+
+    .nav-target-label {
+        font-size: 1.15rem;
+        font-weight: 700;
+    }
+
+    .nav-close-btn {
+        background: rgba(255,255,255,.12);
+        color: white;
+        border: 1px solid rgba(255,255,255,.3);
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        min-height: 40px;
+        font-size: 1rem;
+        line-height: 1;
+        padding: 0;
+    }
+
+    .nav-compass-wrap {
+        position: relative;
+        flex: 1;
+        min-height: 220px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .nav-compass-ring {
+        position: absolute;
+        width: min(78vw, 340px);
+        height: min(78vw, 340px);
+        border-radius: 50%;
+        border: 3px solid rgba(255,255,255,.35);
+        transition: transform .25s linear;
+    }
+
+    .nav-compass-tick {
+        position: absolute;
+        font-weight: 800;
+        font-size: 1rem;
+        color: rgba(255,255,255,.65);
+        width: 20px;
+        text-align: center;
+    }
+
+    .nav-tick-n { top: -10px; left: calc(50% - 10px); color: #ff8a65; }
+    .nav-tick-s { bottom: -10px; left: calc(50% - 10px); }
+    .nav-tick-e { right: -10px; top: calc(50% - 8px); }
+    .nav-tick-w { left: -10px; top: calc(50% - 8px); }
+
+    .nav-arrow {
+        position: relative;
+        width: 34%;
+        max-width: 150px;
+        aspect-ratio: 1 / 2.4;
+        background: #ff5533;
+        clip-path: polygon(50% 0%, 100% 42%, 70% 42%, 70% 100%, 30% 100%, 30% 42%, 0% 42%);
+        transition: transform .2s linear;
+        filter: drop-shadow(0 2px 6px rgba(0,0,0,.5));
+    }
+
+    .nav-status {
+        text-align: center;
+        color: #ffcc80;
+        min-height: 1.1em;
+        margin-bottom: 4px;
+    }
+
+    .nav-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .nav-stat {
+        background: rgba(255,255,255,.08);
+        border-radius: 8px;
+        padding: 8px 6px;
+        text-align: center;
+    }
+
+    .nav-stat-label {
+        font-size: .68rem;
+        color: rgba(255,255,255,.6);
+        text-transform: uppercase;
+        letter-spacing: .04em;
+    }
+
+    .nav-stat-value {
+        font-size: 1.1rem;
+        font-weight: 800;
+        margin-top: 2px;
+    }
+
     @media (orientation: landscape) {
         #panel {
             max-height: 55vh;
@@ -377,7 +503,7 @@
         <div id="targetInfo" class="status"></div>
 
         <div class="row">
-            <button onclick="navigateTarget()">
+            <button class="primary" onclick="openNavModal()">
                 Navigate
             </button>
 
@@ -404,6 +530,55 @@
         <div id="qrcode" style="display:flex; justify-content:center; margin:15px 0;"></div>
         <p class="small">Scan to load grid configuration directly with viewer mode auto-enabled.</p>
         <button onclick="closeQRModal()" class="primary" style="margin-top:10px; width:100%;">Close</button>
+    </div>
+</div>
+
+<div id="navModal">
+    <div class="nav-box">
+        <div class="nav-header">
+            <div id="navTargetLabel" class="nav-target-label">Target: —</div>
+            <button onclick="closeNavModal()" class="nav-close-btn">&#10005;</button>
+        </div>
+
+        <div class="nav-compass-wrap">
+            <div id="navCompassRing" class="nav-compass-ring">
+                <div class="nav-compass-tick nav-tick-n">N</div>
+                <div class="nav-compass-tick nav-tick-e">E</div>
+                <div class="nav-compass-tick nav-tick-s">S</div>
+                <div class="nav-compass-tick nav-tick-w">W</div>
+            </div>
+            <div id="navArrow" class="nav-arrow"></div>
+        </div>
+
+        <div id="navStatus" class="small nav-status"></div>
+
+        <div class="nav-stats">
+            <div class="nav-stat">
+                <div class="nav-stat-label">Required course</div>
+                <div id="navCourseText" class="nav-stat-value">—</div>
+            </div>
+            <div class="nav-stat">
+                <div class="nav-stat-label">Track (last 10m)</div>
+                <div id="navTrackText" class="nav-stat-value">—</div>
+            </div>
+            <div class="nav-stat">
+                <div class="nav-stat-label">Distance</div>
+                <div id="navDistanceText" class="nav-stat-value">—</div>
+            </div>
+            <div class="nav-stat">
+                <div class="nav-stat-label">Time to go</div>
+                <div id="navTtgText" class="nav-stat-value">—</div>
+            </div>
+            <div class="nav-stat">
+                <div class="nav-stat-label">ETA</div>
+                <div id="navEtaText" class="nav-stat-value">—</div>
+            </div>
+        </div>
+
+        <div class="row" style="margin-top:10px; margin-bottom:0;">
+            <button onclick="openExternalNav()">Open in Maps</button>
+            <button onclick="closeNavModal()" class="primary" style="flex:1;">Close</button>
+        </div>
     </div>
 </div>
 
@@ -451,6 +626,11 @@ let targetGeo = null;
 let zoomToMeStep = 0;
 let configLocked = false;
 let pointCounter = 0;
+let trackHistory = [];
+let navModalOpen = false;
+let lastReportedSpeed = null; // m/s from GPS, when the device supplies it
+const TRACK_WINDOW_METRES = 10;
+const TRACK_HISTORY_CAP = 200;
 
 function loadFromHash() {
     const params = new URLSearchParams(window.location.search);
@@ -1191,6 +1371,21 @@ function startGPS() {
                 lat: position.coords.latitude,
                 lon: position.coords.longitude
             };
+
+            lastReportedSpeed = (typeof position.coords.speed === "number" && position.coords.speed >= 0)
+                ? position.coords.speed
+                : null;
+
+            // Skip very low-accuracy fixes for track purposes (they'd
+            // just inject noise into the last-10m bearing calculation)
+            // but still update the displayed position either way.
+            if (!position.coords.accuracy || position.coords.accuracy <= 25) {
+                trackHistory.push({ lat: currentGeo.lat, lon: currentGeo.lon, t: Date.now() });
+                if (trackHistory.length > TRACK_HISTORY_CAP) {
+                    trackHistory.splice(0, trackHistory.length - TRACK_HISTORY_CAP);
+                }
+            }
+
             updateCurrent(position.coords.accuracy);
         },
         error => {
@@ -1209,6 +1404,9 @@ function stopGPS() {
         navigator.geolocation.clearWatch(gpsWatch);
         gpsWatch = null;
     }
+
+    trackHistory = [];
+    lastReportedSpeed = null;
 
     document.getElementById("startGpsBtn").disabled = false;
     document.getElementById("stopGpsBtn").disabled = true;
@@ -1340,6 +1538,8 @@ function updateCurrent(accuracy) {
     }
 
     document.getElementById("gpsInfo").textContent = text;
+
+    if (navModalOpen) updateNavDisplay();
 }
 
 function findTarget() {
@@ -1389,9 +1589,11 @@ function clearTarget() {
         removePoint('target');
     }
     document.getElementById("targetInfo").textContent = "";
+
+    if (navModalOpen) closeNavModal();
 }
 
-function navigateTarget() {
+function openExternalNav() {
     if (!targetGeo) {
         findTarget();
         if (!targetGeo) return;
@@ -1401,6 +1603,161 @@ function navigateTarget() {
         "&destination=" + encodeURIComponent(targetGeo.lat + "," + targetGeo.lon);
 
     window.open(url, "_blank");
+}
+
+function degToCompass(deg) {
+    const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    const ix = Math.round(((deg % 360) + 360) % 360 / 22.5) % 16;
+    return dirs[ix];
+}
+
+function normalizeAngle(deg) {
+    return ((deg % 360) + 360) % 360;
+}
+
+// Walks back through trackHistory accumulating path distance until it
+// covers TRACK_WINDOW_METRES, returning the start fix, current fix,
+// total distance and elapsed time over that window — or null if there
+// isn't yet 10m of recorded movement to base a track on.
+function computeTrackWindow() {
+    if (trackHistory.length < 2) return null;
+
+    const end = trackHistory[trackHistory.length - 1];
+    let accDist = 0;
+    let startIndex = trackHistory.length - 1;
+
+    for (let i = trackHistory.length - 2; i >= 0; i--) {
+        accDist += distanceMetres(trackHistory[i], trackHistory[i + 1]);
+        startIndex = i;
+        if (accDist >= TRACK_WINDOW_METRES) break;
+    }
+
+    if (accDist < TRACK_WINDOW_METRES) return null;
+
+    const start = trackHistory[startIndex];
+    const timeSeconds = (end.t - start.t) / 1000;
+
+    return { start, end, distance: accDist, timeSeconds };
+}
+
+function computeTrackBearing() {
+    const win = computeTrackWindow();
+    if (!win) return null;
+    return bearing(win.start, win.end);
+}
+
+// Ground speed derived from the same last-10m window, used only as a
+// fallback when the device doesn't report a speed value directly.
+function computeWindowSpeed() {
+    const win = computeTrackWindow();
+    if (!win || win.timeSeconds <= 0) return null;
+    return win.distance / win.timeSeconds;
+}
+
+// VMG (velocity made good) toward the target: the component of the
+// current speed that's actually closing the distance to the waypoint,
+// not just raw ground speed — matters a lot once you're off course.
+function computeVMG(speedMps, trackAngle, courseAngle) {
+    if (speedMps === null || speedMps === undefined) return null;
+    if (trackAngle === null) return speedMps; // no track direction yet — best guess is raw speed
+    const angleDiff = degToRad(courseAngle - trackAngle);
+    return speedMps * Math.cos(angleDiff);
+}
+
+function formatDistance(m) {
+    if (m < 1000) return m.toFixed(m < 50 ? 1 : 0) + " m";
+    return (m / 1000).toFixed(2) + " km";
+}
+
+function formatDuration(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return "—";
+    if (seconds < 60) return Math.round(seconds) + "s";
+    if (seconds < 3600) return Math.round(seconds / 60) + " min";
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.round((seconds % 3600) / 60);
+    return hrs + "h " + mins + "m";
+}
+
+function formatEta(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return "—";
+    const eta = new Date(Date.now() + seconds * 1000);
+    return eta.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function openNavModal() {
+    if (!targetGeo) {
+        findTarget();
+        if (!targetGeo) return;
+    }
+
+    if (!currentGeo) {
+        alert("Start GPS first — live navigation needs your current position.");
+        return;
+    }
+
+    navModalOpen = true;
+    document.getElementById("navModal").style.display = "flex";
+    updateNavDisplay();
+}
+
+function closeNavModal() {
+    navModalOpen = false;
+    document.getElementById("navModal").style.display = "none";
+}
+
+function updateNavDisplay() {
+    if (!navModalOpen) return;
+
+    const targetLabel = (document.getElementById("targetRef").value || "").toUpperCase();
+    document.getElementById("navTargetLabel").textContent = "Target: " + (targetLabel || "—");
+
+    if (!currentGeo || !targetGeo) {
+        document.getElementById("navStatus").textContent = "Waiting for GPS fix…";
+        document.getElementById("navCourseText").textContent = "—";
+        document.getElementById("navTrackText").textContent = "—";
+        document.getElementById("navDistanceText").textContent = "—";
+        document.getElementById("navTtgText").textContent = "—";
+        document.getElementById("navEtaText").textContent = "—";
+        return;
+    }
+
+    const courseAngle = bearing(currentGeo, targetGeo);
+    const distance = distanceMetres(currentGeo, targetGeo);
+    const trackAngle = computeTrackBearing();
+
+    const relativeBearing = (trackAngle !== null)
+        ? normalizeAngle(courseAngle - trackAngle)
+        : courseAngle; // north-up fallback when no track established yet
+
+    const ringRotation = (trackAngle !== null) ? normalizeAngle(-trackAngle) : 0;
+
+    document.getElementById("navArrow").style.transform = "rotate(" + relativeBearing + "deg)";
+    document.getElementById("navCompassRing").style.transform = "rotate(" + ringRotation + "deg)";
+
+    document.getElementById("navCourseText").textContent =
+        Math.round(courseAngle) + "° " + degToCompass(courseAngle);
+
+    document.getElementById("navTrackText").textContent = (trackAngle !== null)
+        ? Math.round(trackAngle) + "° " + degToCompass(trackAngle)
+        : "—";
+
+    document.getElementById("navStatus").textContent = (trackAngle !== null)
+        ? ""
+        : "Move a few steps to establish track — showing north-up";
+
+    document.getElementById("navDistanceText").textContent = formatDistance(distance);
+
+    const rawSpeed = (lastReportedSpeed !== null) ? lastReportedSpeed : computeWindowSpeed();
+    const vmg = computeVMG(rawSpeed, trackAngle, courseAngle);
+
+    if (vmg !== null && vmg > 0.1) {
+        const ttgSeconds = distance / vmg;
+        document.getElementById("navTtgText").textContent = formatDuration(ttgSeconds);
+        document.getElementById("navEtaText").textContent = formatEta(ttgSeconds);
+    } else {
+        document.getElementById("navTtgText").textContent = "—";
+        document.getElementById("navEtaText").textContent = "—";
+    }
 }
 
 function distanceMetres(a, b) {
@@ -1635,6 +1992,8 @@ function newGrid() {
     currentMarker = null;
     targetGeo = null;
 
+    if (navModalOpen) closeNavModal();
+
     clearTimeout(pressTimer);
     pressTimer = null;
     longPressFired = false;
@@ -1659,6 +2018,8 @@ setInterval(() => {
             targetGeo.lat.toFixed(6) + ", " + targetGeo.lon.toFixed(6) +
             "<br><b>" + d.toFixed(1) + " m</b>, bearing <b>" + b.toFixed(0) + "°</b>";
     }
+
+    if (navModalOpen) updateNavDisplay();
 }, 1000);
 
 document.getElementById("columns").addEventListener("change", () => {
