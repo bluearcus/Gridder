@@ -192,10 +192,10 @@
 
     <div class="row" style="justify-content: space-between;">
         <button onclick="toggleConfigUI()" style="min-height:32px; padding:4px 8px; font-size:0.85rem;">
-            ⚙ Toggle Config Cards
+            âš™ Toggle Config Cards
         </button>
         <button id="noConfigShareBtn" onclick="showQRCode()" class="primary" style="min-height:32px; padding:4px 8px; font-size:0.85rem;">
-            📱 Share QR
+            ðŸ“± Share QR
         </button>
     </div>
 
@@ -217,7 +217,7 @@
         </div>
 
         <div class="small">
-            Columns use Excel-style labels: A…Z, AA…AZ, BA…BS…
+            Columns use Excel-style labels: Aâ€¦Z, AAâ€¦AZ, BAâ€¦BSâ€¦
         </div>
     </div>
 
@@ -312,7 +312,7 @@
     <div class="card">
         <b>Current position</b>
 
-        <div id="currentRef" class="current">—</div>
+        <div id="currentRef" class="current">â€”</div>
 
         <div id="gpsInfo" class="small">
             GPS not started.
@@ -324,7 +324,7 @@
             </button>
 
             <button onclick="zoomToCurrent()">
-                🎯 Zoom to me
+                ðŸŽ¯ Zoom to me
             </button>
 
             <button onclick="stopGPS()">
@@ -447,12 +447,17 @@ function toggleConfigUI() {
 }
 
 function updateShareButtonVisibility() {
+    // allowShare only governs whether a RECIPIENT (no-config/viewer mode)
+    // sees a re-share button. It must never hide the creator's own QR
+    // button in the config card ("configQrBtn") â€” that button already
+    // lives inside .config-card, which is hidden for recipients via
+    // .hide-config-mode. Tying it to allowShare too meant that unchecking
+    // "allow sharing" removed the creator's own ability to ever generate
+    // that QR code in the first place (self-defeating).
     const isAllowed = document.getElementById("allowShare").checked;
     const noConfigBtn = document.getElementById("noConfigShareBtn");
-    const configQrBtn = document.getElementById("configQrBtn");
 
     if (noConfigBtn) noConfigBtn.style.display = isAllowed ? "inline-block" : "none";
-    if (configQrBtn) configQrBtn.style.display = isAllowed ? "inline-block" : "none";
 }
 
 function setInteractiveMarker(id, geo, label) {
@@ -712,8 +717,8 @@ function calibrate() {
             "Grid calibrated.<br>" +
             "Approx. cell width: <b>" + info.width.toFixed(2) + " m</b><br>" +
             "Approx. cell height: <b>" + info.height.toFixed(2) + " m</b><br>" +
-            "Grid X direction: <b>" + info.angleX.toFixed(2) + "°</b> clockwise from north<br>" +
-            "Grid Y direction: <b>" + info.angleY.toFixed(2) + "°</b> clockwise from north"
+            "Grid X direction: <b>" + info.angleX.toFixed(2) + "Â°</b> clockwise from north<br>" +
+            "Grid Y direction: <b>" + info.angleY.toFixed(2) + "Â°</b> clockwise from north"
         );
 
         drawGrid();
@@ -853,7 +858,7 @@ function normaliseGrid() {
     setCalibrationMessage(
         "<b>Grid normalised.</b><br>" +
         "Cell size: <b>" + newInfo.width.toFixed(2) + " m &times; " + newInfo.height.toFixed(2) + " m</b><br>" +
-        "Orientation: <b>" + newInfo.angleX.toFixed(1) + "°</b> clockwise from north<br>" +
+        "Orientation: <b>" + newInfo.angleX.toFixed(1) + "Â°</b> clockwise from north<br>" +
         "Origin snapped shift: <b>" + originShift.toFixed(2) + " m</b>"
     );
 
@@ -1000,7 +1005,7 @@ function startGPS() {
     }
 
     stopGPS();
-    document.getElementById("gpsInfo").textContent = "Waiting for GPS…";
+    document.getElementById("gpsInfo").textContent = "Waiting for GPSâ€¦";
 
     gpsWatch = navigator.geolocation.watchPosition(
         position => {
@@ -1133,7 +1138,7 @@ function updateCurrent(accuracy) {
     }).addTo(map);
 
     if (!calibration) {
-        document.getElementById("currentRef").textContent = "—";
+        document.getElementById("currentRef").textContent = "â€”";
     } else {
         const g = geoToGrid(currentGeo, calibration);
         const ref = gridReferenceAt(g.x, g.y);
@@ -1142,7 +1147,7 @@ function updateCurrent(accuracy) {
 
     let text = currentGeo.lat.toFixed(6) + ", " + currentGeo.lon.toFixed(6);
     if (accuracy !== undefined) {
-        text += "  ±" + accuracy.toFixed(1) + " m";
+        text += "  Â±" + accuracy.toFixed(1) + " m";
     }
 
     document.getElementById("gpsInfo").textContent = text;
@@ -1183,7 +1188,7 @@ function findTarget() {
     if (currentGeo) {
         const d = distanceMetres(currentGeo, geo);
         const b = bearing(currentGeo, geo);
-        text += "<br><b>" + d.toFixed(1) + " m</b>, bearing <b>" + b.toFixed(0) + "°</b>";
+        text += "<br><b>" + d.toFixed(1) + " m</b>, bearing <b>" + b.toFixed(0) + "Â°</b>";
     }
 
     document.getElementById("targetInfo").innerHTML = text;
@@ -1435,7 +1440,7 @@ function newGrid() {
     currentMarker = null;
     targetGeo = null;
 
-    document.getElementById("currentRef").textContent = "—";
+    document.getElementById("currentRef").textContent = "â€”";
     document.getElementById("targetInfo").textContent = "";
     document.getElementById("pickedInfo").textContent = "Tap the map after calibration to identify a grid cell.";
     setCalibrationMessage("No calibration yet.");
@@ -1450,7 +1455,7 @@ setInterval(() => {
         document.getElementById("targetInfo").innerHTML =
             "<b>" + ref + "</b><br>" +
             targetGeo.lat.toFixed(6) + ", " + targetGeo.lon.toFixed(6) +
-            "<br><b>" + d.toFixed(1) + " m</b>, bearing <b>" + b.toFixed(0) + "°</b>";
+            "<br><b>" + d.toFixed(1) + " m</b>, bearing <b>" + b.toFixed(0) + "Â°</b>";
     }
 }, 1000);
 
