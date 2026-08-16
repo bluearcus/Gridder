@@ -145,7 +145,6 @@
         pointer-events: none;
     }
 
-    /* Expanded Modal & Responsive QR Canvas */
     #qrModal {
         display: none;
         position: fixed;
@@ -358,12 +357,11 @@
 
 </div>
 
-<!-- Expanded QR Code Modal Dialog -->
 <div id="qrModal">
     <div class="modal-box">
         <h3 style="margin-top:0;">Grid Share QR Code</h3>
         <div id="qrcode" style="display:flex; justify-content:center; margin:15px 0;"></div>
-        <p class="small">Scan to load grid configuration directly with <b>hideConfig=true</b> enabled.</p>
+        <p class="small">Scan to load grid configuration directly with viewer mode auto-enabled.</p>
         <button onclick="closeQRModal()" class="primary" style="margin-top:10px; width:100%;">Close</button>
     </div>
 </div>
@@ -373,12 +371,6 @@
 
 <script>
 "use strict";
-
-/*
- * ================================================================
- * Local Grid
- * ================================================================
- */
 
 const map = L.map("map", {
     zoomControl: true,
@@ -396,31 +388,16 @@ L.tileLayer(
 
 map.setView([51.5, -0.12], 12);
 
-
-/* ---------------------------------------------------------------
- * Application State & Markers
- * --------------------------------------------------------------- */
-
 let calibrationPoints = {};
 let calibration = null;
-
 let gridLayer = L.layerGroup().addTo(map);
-
 let currentMarker = null;
 let targetMarker = null;
-
 let mapMarkers = {};
-
 let gpsWatch = null;
 let currentGeo = null;
-
 let pendingPoint = null;
 let targetGeo = null;
-
-
-/* ---------------------------------------------------------------
- * URL State Parsing (Handles Legacy and Compact QR Payload Formats)
- * --------------------------------------------------------------- */
 
 window.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
@@ -433,6 +410,12 @@ window.addEventListener('DOMContentLoaded', () => {
         try {
             const rawHash = decodeURIComponent(window.location.hash.substring(1));
             const data = JSON.parse(rawHash);
+            
+            // Activate hideConfig if set in payload flag
+            if (data.hc === 1 || data.hideConfig === true) {
+                document.body.classList.add('hide-config-mode');
+            }
+
             applyGridData(data);
         } catch(e) {
             console.error("Could not parse payload from hash URL", e);
@@ -443,11 +426,6 @@ window.addEventListener('DOMContentLoaded', () => {
 function toggleConfigUI() {
     document.body.classList.toggle('hide-config-mode');
 }
-
-
-/* ---------------------------------------------------------------
- * Dynamic Interactive Marker System
- * --------------------------------------------------------------- */
 
 function setInteractiveMarker(id, geo, label) {
     if (mapMarkers[id]) {
@@ -512,11 +490,6 @@ function renamePoint(id) {
     }
 }
 
-
-/* ---------------------------------------------------------------
- * Column Label Formatting
- * --------------------------------------------------------------- */
-
 function columnLabel(index) {
     let n = index + 1;
     let s = "";
@@ -530,22 +503,17 @@ function columnLabel(index) {
     return s;
 }
 
-
 function columnIndex(label) {
     label = label.toUpperCase();
-
     let n = 0;
 
     for (const c of label) {
-        if (c < "A" || c > "Z")
-            return -1;
-
+        if (c < "A" || c > "Z") return -1;
         n = n * 26 + c.charCodeAt(0) - 64;
     }
 
     return n - 1;
 }
-
 
 function parseRef(ref) {
     const m = String(ref)
@@ -553,31 +521,19 @@ function parseRef(ref) {
         .toUpperCase()
         .match(/^([A-Z]+)([0-9]+)$/);
 
-    if (!m)
-        return null;
+    if (!m) return null;
 
     const col = columnIndex(m[1]);
     const row = parseInt(m[2], 10) - 1;
 
-    if (col < 0 || row < 0)
-        return null;
+    if (col < 0 || row < 0) return null;
 
-    return {
-        col,
-        row,
-        label: m[1] + (row + 1)
-    };
+    return { col, row, label: m[1] + (row + 1) };
 }
-
 
 function makeRef(col, row) {
     return columnLabel(col) + (row + 1);
 }
-
-
-/* ---------------------------------------------------------------
- * Geographic Projection & Transformations
- * --------------------------------------------------------------- */
 
 const EARTH_RADIUS = 6378137;
 
@@ -600,11 +556,6 @@ function geoFromLocal(xy, origin) {
     };
 }
 
-
-/* ---------------------------------------------------------------
- * Matrix Solver
- * --------------------------------------------------------------- */
-
 function solve3(A, b) {
     A = A.map(row => row.slice());
     b = b.slice();
@@ -615,8 +566,7 @@ function solve3(A, b) {
             if (Math.abs(A[r][i]) > Math.abs(A[pivot][i])) pivot = r;
         }
 
-        if (Math.abs(A[pivot][i]) < 1e-12)
-            throw new Error("Singular calibration.");
+        if (Math.abs(A[pivot][i]) < 1e-12) throw new Error("Singular calibration.");
 
         [A[i], A[pivot]] = [A[pivot], A[i]];
         [b[i], b[pivot]] = [b[pivot], b[i]];
@@ -634,7 +584,6 @@ function solve3(A, b) {
     }
     return b;
 }
-
 
 function makeAffine(points, origin) {
     const A = [];
@@ -658,7 +607,6 @@ function makeAffine(points, origin) {
     };
 }
 
-
 function geoToGrid(geo, t) {
     const p = localXY(geo, t.origin);
     return {
@@ -667,14 +615,12 @@ function geoToGrid(geo, t) {
     };
 }
 
-
 function gridToGeo(grid, t) {
     const X = grid.x - t.c;
     const Y = grid.y - t.f;
     const det = t.a * t.e - t.b * t.d;
 
-    if (Math.abs(det) < 1e-12)
-        throw new Error("Invalid transformation.");
+    if (Math.abs(det) < 1e-12) throw new Error("Invalid transformation.");
 
     const x = (t.e * X - t.b * Y) / det;
     const y = (-t.d * X + t.a * Y) / det;
@@ -682,18 +628,12 @@ function gridToGeo(grid, t) {
     return geoFromLocal({ x, y }, t.origin);
 }
 
-
-/* ---------------------------------------------------------------
- * Grid Calibration & Metrics
- * --------------------------------------------------------------- */
-
 function getGridSize() {
     return {
         cols: Math.max(1, parseInt(document.getElementById("columns").value, 10) || 71),
         rows: Math.max(1, parseInt(document.getElementById("rows").value, 10) || 44)
     };
 }
-
 
 function calibrate() {
     const required = [1, 2, 3];
@@ -759,7 +699,6 @@ function calibrate() {
     }
 }
 
-
 function gridMetrics() {
     const g0 = gridToGeo({ x: 0, y: 0 }, calibration);
     const gx = gridToGeo({ x: 1, y: 0 }, calibration);
@@ -784,15 +723,9 @@ function gridMetrics() {
     return { width, height, angleX, angleY };
 }
 
-
 function setCalibrationMessage(html) {
     document.getElementById("calibrationResult").innerHTML = html;
 }
-
-
-/* ---------------------------------------------------------------
- * Normalisation Helpers
- * --------------------------------------------------------------- */
 
 function snapNiceNumber(val) {
     const standardGridSizes = [1000, 500, 250, 200, 100, 50, 25, 20, 10, 5, 2, 1];
@@ -805,7 +738,6 @@ function snapNiceNumber(val) {
     return Math.round(val);
 }
 
-
 function snapAngle(angle) {
     angle = (angle % 360 + 360) % 360;
     const cardinals = [0, 90, 180, 270, 360];
@@ -815,7 +747,6 @@ function snapAngle(angle) {
     return Math.round(angle * 2) / 2;
 }
 
-
 function snapOriginCoord(val, maxDiff = 2.5) {
     const steps = [100, 50, 25, 10, 5, 2, 1, 0.5];
     for (const step of steps) {
@@ -824,7 +755,6 @@ function snapOriginCoord(val, maxDiff = 2.5) {
     }
     return val;
 }
-
 
 function normaliseGrid() {
     if (!calibration) {
@@ -906,18 +836,12 @@ function normaliseGrid() {
     if (document.getElementById("targetRef").value) findTarget();
 }
 
-
-/* ---------------------------------------------------------------
- * Point picking
- * --------------------------------------------------------------- */
-
 function armPoint(n) {
     pendingPoint = n;
     const ref = document.getElementById("ref" + n).value.toUpperCase();
     document.getElementById("mapInfo").textContent = "Tap map to set " + ref;
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
-
 
 map.on("click", function(e) {
     const geo = { lat: e.latlng.lat, lon: e.latlng.lng };
@@ -982,11 +906,6 @@ map.on("click", function(e) {
     }
 });
 
-
-/* ---------------------------------------------------------------
- * Grid References
- * --------------------------------------------------------------- */
-
 function gridReferenceAt(x, y) {
     const size = getGridSize();
     let col = Math.floor(x);
@@ -997,11 +916,6 @@ function gridReferenceAt(x, y) {
 
     return makeRef(col, row);
 }
-
-
-/* ---------------------------------------------------------------
- * Grid Overlay & Zooming
- * --------------------------------------------------------------- */
 
 function zoomToGrid() {
     if (!calibration) return;
@@ -1021,7 +935,6 @@ function zoomToGrid() {
 
     map.fitBounds(bounds, { padding: [20, 20] });
 }
-
 
 function drawGrid() {
     gridLayer.clearLayers();
@@ -1048,11 +961,6 @@ function drawGrid() {
     }
 }
 
-
-/* ---------------------------------------------------------------
- * GPS Tracking
- * --------------------------------------------------------------- */
-
 function startGPS() {
     if (!navigator.geolocation) {
         alert("This browser does not provide GPS.");
@@ -1077,14 +985,12 @@ function startGPS() {
     );
 }
 
-
 function stopGPS() {
     if (gpsWatch !== null) {
         navigator.geolocation.clearWatch(gpsWatch);
         gpsWatch = null;
     }
 }
-
 
 function updateCurrent(accuracy) {
     if (!currentGeo) return;
@@ -1110,11 +1016,6 @@ function updateCurrent(accuracy) {
 
     document.getElementById("gpsInfo").textContent = text;
 }
-
-
-/* ---------------------------------------------------------------
- * Target Searching
- * --------------------------------------------------------------- */
 
 function findTarget() {
     if (!calibration) {
@@ -1157,7 +1058,6 @@ function findTarget() {
     document.getElementById("targetInfo").innerHTML = text;
 }
 
-
 function clearTarget() {
     targetGeo = null;
     if (mapMarkers['target']) {
@@ -1165,7 +1065,6 @@ function clearTarget() {
     }
     document.getElementById("targetInfo").textContent = "";
 }
-
 
 function navigateTarget() {
     if (!targetGeo) {
@@ -1179,11 +1078,6 @@ function navigateTarget() {
     window.open(url, "_blank");
 }
 
-
-/* ---------------------------------------------------------------
- * Navigation Calculations
- * --------------------------------------------------------------- */
-
 function distanceMetres(a, b) {
     const R = 6371000;
     const p1 = degToRad(a.lat);
@@ -1194,7 +1088,6 @@ function distanceMetres(a, b) {
     const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
     return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
-
 
 function bearing(a, b) {
     const p1 = degToRad(a.lat);
@@ -1207,11 +1100,6 @@ function bearing(a, b) {
     let brg = radToDeg(Math.atan2(y, x));
     return (brg + 360) % 360;
 }
-
-
-/* ---------------------------------------------------------------
- * Dual-Format Storage Parsing & Serialization
- * --------------------------------------------------------------- */
 
 function getFullGridData() {
     return {
@@ -1234,6 +1122,7 @@ function getCompactGridData() {
         c: parseInt(document.getElementById("columns").value, 10),
         r: parseInt(document.getElementById("rows").value, 10),
         a: document.getElementById("gridAlignment").value === "center" ? 1 : 0,
+        hc: 1, // Embed hideConfig flag directly in hash payload
         rf: [
             document.getElementById("ref1").value,
             document.getElementById("ref2").value,
@@ -1249,7 +1138,6 @@ function getCompactGridData() {
 function applyGridData(data) {
     if (!data) return;
 
-    // Detect format: Compact (new) vs Legacy (old)
     const isCompact = data.c !== undefined;
 
     const cols = isCompact ? data.c : data.columns;
@@ -1311,12 +1199,10 @@ function applyGridData(data) {
     }
 }
 
-
 function saveGrid() {
     localStorage.setItem("localGrid", JSON.stringify(getFullGridData()));
     alert("Grid saved to browser local storage.");
 }
-
 
 function loadGrid() {
     const raw = localStorage.getItem("localGrid");
@@ -1333,7 +1219,6 @@ function loadGrid() {
     }
 }
 
-
 function exportGridFile() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(getFullGridData(), null, 2));
     const dlAnchorElem = document.createElement('a');
@@ -1344,11 +1229,9 @@ function exportGridFile() {
     dlAnchorElem.remove();
 }
 
-
 function importGridFile() {
     document.getElementById("gridFileInput").click();
 }
-
 
 function handleFileSelect(event) {
     const file = event.target.files[0];
@@ -1368,15 +1251,18 @@ function handleFileSelect(event) {
     event.target.value = '';
 }
 
-
-/* ---------------------------------------------------------------
- * QR Code Generation
- * --------------------------------------------------------------- */
-
 function showQRCode() {
-    const compactStr = JSON.stringify(getCompactGridData());
-    const baseUrl = window.location.origin + window.location.pathname;
-    const shareUrl = baseUrl + "?hideConfig=true#" + encodeURIComponent(compactStr);
+    const compactData = getCompactGridData();
+    
+    // Construct clean base URL without query strings to prevent GitHub Pages 404s
+    let baseUrl = window.location.href.split('?')[0].split('#')[0];
+    
+    // Ensure trailing slash for directory routes
+    if (!baseUrl.endsWith('/') && !baseUrl.endsWith('.html')) {
+        baseUrl += '/';
+    }
+
+    const shareUrl = baseUrl + '#' + encodeURIComponent(JSON.stringify(compactData));
 
     const container = document.getElementById("qrcode");
     container.innerHTML = "";
@@ -1394,11 +1280,6 @@ function showQRCode() {
 function closeQRModal() {
     document.getElementById("qrModal").style.display = "none";
 }
-
-
-/* ---------------------------------------------------------------
- * Grid Reset
- * --------------------------------------------------------------- */
 
 function newGrid() {
     if (!confirm("Reset the current grid?")) return;
@@ -1423,11 +1304,6 @@ function newGrid() {
     document.getElementById("pickedInfo").textContent = "Tap the map after calibration to identify a grid cell.";
     setCalibrationMessage("No calibration yet.");
 }
-
-
-/* ---------------------------------------------------------------
- * Periodic Handlers & Event Listeners
- * --------------------------------------------------------------- */
 
 setInterval(() => {
     if (currentGeo && targetGeo) {
