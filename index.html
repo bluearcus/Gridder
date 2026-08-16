@@ -184,6 +184,28 @@
             max-height: 55vh;
         }
     }
+
+    .ref-peek-tooltip {
+        background: rgba(255,255,255,.95);
+        border: 2px solid #1769aa;
+        border-radius: 5px;
+        font-weight: 800;
+        font-size: 0.95rem;
+        letter-spacing: .03em;
+        padding: 2px 6px;
+        color: #1769aa;
+        box-shadow: 0 1px 4px rgba(0,0,0,.3);
+        pointer-events: none;
+    }
+
+    .ref-peek-tooltip.ref-peek-outside {
+        border-color: #a52a2a;
+        color: #a52a2a;
+    }
+
+    .ref-peek-tooltip::before {
+        display: none !important;
+    }
 </style>
 </head>
 
@@ -370,7 +392,7 @@
         <b>Map point</b>
 
         <div id="pickedInfo" class="status">
-            Tap the map after calibration to identify a grid cell.
+            Tap the map after calibration to peek at a grid reference. Press and hold to add a point.
         </div>
     </div>
 
@@ -463,6 +485,22 @@ window.addEventListener('hashchange', loadFromHash);
 function toggleConfigUI() {
     if (configLocked) return; // shared/viewer links can never expose config editing
     document.body.classList.toggle('hide-config-mode');
+    setCalibrationMarkersVisibility(!document.body.classList.contains('hide-config-mode'));
+}
+
+function setCalibrationMarkersVisibility(visible) {
+    // Calibration/check markers live on the Leaflet map layer, not in the
+    // .config-card DOM the hide-config-mode CSS rule hides — so they need
+    // to be shown/hidden explicitly whenever config visibility changes.
+    ['p1', 'p2', 'p3', 'check'].forEach(id => {
+        const item = mapMarkers[id];
+        if (!item) return;
+        if (visible) {
+            if (!map.hasLayer(item.marker)) item.marker.addTo(map);
+        } else {
+            if (map.hasLayer(item.marker)) item.marker.remove();
+        }
+    });
 }
 
 function updateShareButtonVisibility() {
@@ -479,17 +517,22 @@ function updateShareButtonVisibility() {
     if (noConfigBtn) noConfigBtn.style.display = isAllowed ? "inline-block" : "none";
 }
 
-function setInteractiveMarker(id, geo, ref, name) {
+function setInteractiveMarker(id, geo, ref, name, visible) {
     // ref = the grid reference (or descriptive title, e.g. "CHECK A2") -
     // always shown and never overwritten by naming.
     // name = an optional user-given custom name, kept separate from ref.
+    // visible = whether to add the marker to the map right away (defaults
+    // to true; calibration markers pass false when config is hidden).
+    if (visible === undefined) visible = true;
+
     const existing = mapMarkers[id];
     if (existing) {
         existing.marker.remove();
         if (name === undefined) name = existing.name; // preserve a custom name across marker refresh
     }
 
-    const marker = L.marker([geo.lat, geo.lon]).addTo(map);
+    const marker = L.marker([geo.lat, geo.lon]);
+    if (visible) marker.addTo(map);
     mapMarkers[id] = { id, geo, ref, name: name || null, marker };
 
     updateMarkerPopup(id);
@@ -902,6 +945,110 @@ function armPoint(n) {
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+let pressTimer = null;
+let pressStartLatLng = null;
+let pressStartPoint = null;
+let longPressFired = false;
+let peekLayer = null;
+let peekTimer = null;
+
+const LONG_PRESS_MS = 550;
+const MOVE_CANCEL_PX = 12;
+const MIN_LEGIBLE_CELL_PX = 30; // heuristic: cell must render at least this big to fit a short ref label
+
+map.getContainer().addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+map.on('mousedown', function(e) {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+
+    // Calibration/check taps stay instant single-tap — long-press tracking
+    // only applies to ordinary map browsing once the grid is calibrated.
+    if (pendingPoint !== null || !calibration) return;
+
+    longPressFired = false;
+    pressStartLatLng = e.latlng;
+    pressStartPoint = map.latLngToContainerPoint(e.latlng);
+
+    pressTimer = setTimeout(function() {
+        longPressFired = true;
+        addTappedPoint(pressStartLatLng);
+    }, LONG_PRESS_MS);
+});
+
+map.on('mousemove', function(e) {
+    if (!pressTimer || !pressStartPoint) return;
+    const pt = map.latLngToContainerPoint(e.latlng);
+    if (pt.distanceTo(pressStartPoint) > MOVE_CANCEL_PX) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+    }
+});
+
+map.on('mouseup', function() {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+});
+
+function addTappedPoint(latlng) {
+    if (peekLayer) { map.removeLayer(peekLayer); peekLayer = null; clearTimeout(peekTimer); }
+
+    const geo = { lat: latlng.lat, lon: latlng.lng };
+    const g = geoToGrid(geo, calibration);
+    const ref = gridReferenceAt(g.x, g.y);
+    const label = ref || "Outside grid";
+
+    pointCounter++;
+    const pointId = "pt" + pointCounter;
+    const totalPoints = Object.keys(mapMarkers).filter(k => k.startsWith('pt')).length + 1;
+
+    document.getElementById("pickedInfo").innerHTML =
+        "<b>" + label + "</b><br>Map position: " + geo.lat.toFixed(6) + ", " + geo.lon.toFixed(6) +
+        "<br><span class=\"small\">" + totalPoints + " point(s) added — tap a marker to name or remove it.</span>";
+
+    const m = setInteractiveMarker(pointId, geo, label);
+    m.openPopup();
+}
+
+function showRefPeek(geo, ref) {
+    if (peekLayer) { map.removeLayer(peekLayer); peekLayer = null; }
+    clearTimeout(peekTimer);
+
+    if (!ref) {
+        peekLayer = L.tooltip({ permanent: true, direction: 'top', className: 'ref-peek-tooltip ref-peek-outside', interactive: false })
+            .setLatLng([geo.lat, geo.lon])
+            .setContent('Outside grid')
+            .addTo(map);
+        peekTimer = setTimeout(function() {
+            if (peekLayer) { map.removeLayer(peekLayer); peekLayer = null; }
+        }, 1600);
+        return;
+    }
+
+    const g = geoToGrid(geo, calibration);
+    const col = Math.floor(g.x);
+    const row = Math.floor(g.y);
+
+    const cellNW = gridToGeo({ x: col, y: row }, calibration);
+    const cellSE = gridToGeo({ x: col + 1, y: row + 1 }, calibration);
+    const cellCenter = gridToGeo({ x: col + 0.5, y: row + 0.5 }, calibration);
+
+    const pNW = map.latLngToContainerPoint([cellNW.lat, cellNW.lon]);
+    const pSE = map.latLngToContainerPoint([cellSE.lat, cellSE.lon]);
+    const minDim = Math.min(Math.abs(pSE.x - pNW.x), Math.abs(pSE.y - pNW.y));
+
+    if (minDim < MIN_LEGIBLE_CELL_PX) return; // cell too small on screen to render legibly — skip
+
+    peekLayer = L.tooltip({ permanent: true, direction: 'center', className: 'ref-peek-tooltip', interactive: false })
+        .setLatLng([cellCenter.lat, cellCenter.lon])
+        .setContent(ref)
+        .addTo(map);
+
+    peekTimer = setTimeout(function() {
+        if (peekLayer) { map.removeLayer(peekLayer); peekLayer = null; }
+    }, 2200);
+}
+
 map.on("click", function(e) {
     const geo = { lat: e.latlng.lat, lon: e.latlng.lng };
 
@@ -953,20 +1100,16 @@ map.on("click", function(e) {
         return;
     }
 
+    if (longPressFired) {
+        // this click is the tail end of a long-press we already handled as an add — ignore it
+        longPressFired = false;
+        return;
+    }
+
     if (calibration) {
         const g = geoToGrid(geo, calibration);
         const ref = gridReferenceAt(g.x, g.y);
-        const label = ref || "Outside grid";
-
-        pointCounter++;
-        const pointId = "pt" + pointCounter;
-
-        document.getElementById("pickedInfo").innerHTML =
-            "<b>" + label + "</b><br>Map position: " + geo.lat.toFixed(6) + ", " + geo.lon.toFixed(6) +
-            "<br><span class=\"small\">" + Object.keys(mapMarkers).filter(k => k.startsWith('pt')).length + 1 + " point(s) added — tap a marker to name or remove it.</span>";
-
-        const m = setInteractiveMarker(pointId, geo, label);
-        m.openPopup();
+        showRefPeek(geo, ref);
     }
 });
 
@@ -1356,6 +1499,7 @@ function applyGridData(data) {
     }
 
     calibrationPoints = {};
+    const configVisible = !document.body.classList.contains('hide-config-mode');
 
     if (isCompact && Array.isArray(data.p)) {
         data.p.forEach((pt, i) => {
@@ -1365,7 +1509,9 @@ function applyGridData(data) {
                 setInteractiveMarker(
                     "p" + pointNum,
                     calibrationPoints[pointNum],
-                    document.getElementById("ref" + pointNum).value
+                    document.getElementById("ref" + pointNum).value,
+                    undefined,
+                    configVisible
                 );
             }
         });
@@ -1376,7 +1522,9 @@ function applyGridData(data) {
                 setInteractiveMarker(
                     "p" + n,
                     calibrationPoints[n],
-                    document.getElementById("ref" + n).value
+                    document.getElementById("ref" + n).value,
+                    undefined,
+                    configVisible
                 );
             }
         }
@@ -1487,9 +1635,16 @@ function newGrid() {
     currentMarker = null;
     targetGeo = null;
 
+    clearTimeout(pressTimer);
+    pressTimer = null;
+    longPressFired = false;
+
+    if (peekLayer) { map.removeLayer(peekLayer); peekLayer = null; }
+    clearTimeout(peekTimer);
+
     document.getElementById("currentRef").textContent = "—";
     document.getElementById("targetInfo").textContent = "";
-    document.getElementById("pickedInfo").textContent = "Tap the map after calibration to identify a grid cell.";
+    document.getElementById("pickedInfo").textContent = "Tap the map after calibration to peek at a grid reference. Press and hold to add a point.";
     setCalibrationMessage("No calibration yet.");
 }
 
