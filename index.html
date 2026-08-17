@@ -1598,7 +1598,10 @@ function findTarget() {
 
     targetGeo = geo;
 
-    const m = setInteractiveMarker("target", geo, parsed.label);
+    // Each Find is a new, unrelated waypoint (unlike calibration points,
+    // which really are the same physical point being re-picked) — so any
+    // custom name from a previous target must not carry over.
+    const m = setInteractiveMarker("target", geo, parsed.label, null);
     m.openPopup();
 
     map.setView([geo.lat, geo.lon], Math.max(map.getZoom(), 16));
